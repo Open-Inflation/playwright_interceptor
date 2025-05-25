@@ -1,2 +1,63 @@
-# standard_open_inflation_package
-The standard package for all Open Inflation APIs, includes tools used in most of the project's API libraries.
+# Standard Open Inflation Package
+
+![Python Version](https://img.shields.io/badge/python-3.10%2B-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+
+Стандартный пакет для всех API Open Inflation, включающий инструменты для работы с прокси и генерации документации.
+
+## Установка
+
+```bash
+pip install standard-open-inflation-package
+```
+
+## Использование
+
+### Работа с прокси
+
+```python
+from standard_open_inflation_package import get_env_proxy, parse_proxy
+import logging
+
+# Получение прокси из переменных окружения
+proxy = get_env_proxy()
+
+# Парсинг прокси-строки
+logger = logging.getLogger(__name__)
+result = parse_proxy("user:pass@proxy.example.com:8080", trust_env=True, logger=logger)
+```
+
+### Генерация документации
+
+```python
+from standard_open_inflation_package import generate_docs_index
+
+# Генерация индексной страницы
+success = generate_docs_index("docs")
+```
+
+Или через командную строку:
+
+```bash
+generate-docs-index docs
+```
+
+## API
+
+### `get_env_proxy() -> Union[str, None]`
+Получает прокси из переменных окружения (HTTP_PROXY, HTTPS_PROXY, http_proxy, https_proxy).
+
+### `parse_proxy(proxy_str, trust_env, logger) -> Union[Dict[str, str], None]`
+Парсит строку прокси в словарь. Поддерживает форматы: `host:port`, `http://user:pass@host:port` и др. (для camoufox)
+
+### `generate_docs_index(docs_dir: str = "docs") -> bool`
+Генерирует HTML индексную страницу для директории с документацией.
+
+## Разработка
+
+```bash
+git clone https://github.com/Open-Inflation/standard_open_inflation_package.git
+cd standard_open_inflation_package
+pip install -e .
+pytest
+```
