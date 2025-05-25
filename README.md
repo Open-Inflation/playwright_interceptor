@@ -1,6 +1,6 @@
 # Standard Open Inflation Package
 
-[![GitHub Actions](https://github.com/Open-Inflation/standard_open_inflation_package/workflows/API%20Tests/badge.svg)](https://github.com/Open-Inflation/standard_open_inflation_package/actions?query=workflow%3A"API+Tests?query=branch%3Amain")
+[![GitHub Actions](https://github.com/Open-Inflation/standard_open_inflation_package/workflows/API%20Tests/badge.svg)](https://github.com/Open-Inflation/standard_open_inflation_package/actions/workflows/check_tests.yml?query=branch%3Amain)
 ![Python Version](https://img.shields.io/badge/python-3.10%2B-blue)
 ![PyPI - Package Version](https://img.shields.io/pypi/v/standard_open_inflation_package?color=blue)
 [![PyPI - Downloads](https://img.shields.io/pypi/dm/standard_open_inflation_package?label=PyPi%20downloads)](https://pypi.org/project/standard_open_inflation_package/)
