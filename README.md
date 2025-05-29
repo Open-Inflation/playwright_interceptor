@@ -44,7 +44,7 @@ success = generate_docs_index("docs")
 Или через командную строку:
 
 ```bash
-generate-docs-index docs
+soip-generate-docs-index docs
 ```
 
 ## API
