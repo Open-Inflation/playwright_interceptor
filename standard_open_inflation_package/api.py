@@ -7,6 +7,7 @@ from beartype import beartype
 from beartype.typing import Union, Optional
 from enum import Enum
 from io import BytesIO
+import time
 from .tools import parse_proxy
 
 
@@ -24,10 +25,12 @@ class Response:
     """Класс для представления ответа от API"""
     
     @beartype
-    def __init__(self, status: int, headers: dict, response: Union[dict, list, str, BytesIO]):
+    def __init__(self, status: int, headers: dict, response: Union[dict, list, str, BytesIO], 
+                 duration: float = 0.0):
         self.status = status
         self.headers = headers
         self.response = response
+        self.duration = duration  # Время выполнения запроса в секундах
 
 
 class Handler:
@@ -91,6 +94,7 @@ class BaseAPI:
         
         self._browser = None
         self._bcontext = None
+        self.cookies = {}  # Инициализируем cookies
 
         self._logger = logging.getLogger(self.__class__.__name__)
         handler = logging.StreamHandler()
@@ -143,6 +147,10 @@ class BaseAPI:
     @timeout.setter
     @beartype
     def timeout(self, value: float) -> None:
+        if value <= 0:
+            raise ValueError("Timeout must be positive")
+        if value > 3600:  # 1 час максимум
+            raise ValueError("Timeout too large (max 3600 seconds)")
         self._timeout = value
 
 
@@ -151,6 +159,8 @@ class BaseAPI:
         if not self._bcontext:
             await self.new_session(include_browser=True)
         
+        start_time = time.time()
+
         page = await self._bcontext.new_page()
 
         # Готовим Future и колбэк
@@ -247,11 +257,16 @@ class BaseAPI:
 
         self.cookies = new_cookies
         
-        # Возвращаем объект Response с атрибутами status, headers, response
+        # Вычисляем метрики производительности
+        duration = time.time() - start_time
+        self._logger.info(f"Request completed in {duration:.3f}s")
+        
+        # Возвращаем объект Response с атрибутами status, headers, response, duration
         return Response(
             status=resp.status,
             headers=dict(resp.headers),
-            response=data
+            response=data,
+            duration=duration
         )
 
     @beartype
@@ -271,8 +286,7 @@ class BaseAPI:
         include_browser: bool = False
     ) -> None:
         """
-        Close the aiohttp session and/or Camoufox browser if they are open.
-        :param include_aiohttp: close aiohttp session if True
+        Close the Camoufox browser if it is open.
         :param include_browser: close browser if True
         """
         to_close = []
