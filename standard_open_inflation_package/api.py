@@ -5,7 +5,68 @@ from camoufox import AsyncCamoufox
 import logging
 from beartype import beartype
 from beartype.typing import Union, Optional
+from enum import Enum
+from io import BytesIO
 from .tools import parse_proxy
+
+
+class HttpMethod(Enum):
+    GET = "GET"
+    POST = "POST"
+    PUT = "PUT"
+    DELETE = "DELETE"
+    PATCH = "PATCH"
+    HEAD = "HEAD"
+    OPTIONS = "OPTIONS"
+
+
+class Response:
+    """Класс для представления ответа от API"""
+    
+    @beartype
+    def __init__(self, status: int, headers: dict, response: Union[dict, list, str, BytesIO]):
+        self.status = status
+        self.headers = headers
+        self.response = response
+
+
+class Handler:
+    @beartype
+    def __init__(self, handler_type: str, target_url: Optional[str] = None, content_type: Optional[str] = None, method: HttpMethod = HttpMethod.GET):
+        self.handler_type = handler_type
+        self.target_url = target_url
+        self.content_type = content_type
+        self.method = method
+    
+    @classmethod
+    @beartype
+    def MAIN(cls, method: HttpMethod = HttpMethod.GET):
+        return cls("main", method=method)
+    
+    @classmethod
+    @beartype
+    def CAPTURE(cls, target_url: Optional[str] = None, type: Optional[str] = None, method: HttpMethod = HttpMethod.GET):
+        return cls("capture", target_url, type, method)
+    
+    @classmethod
+    @beartype
+    def JSON(cls, target_url: Optional[str] = None, method: HttpMethod = HttpMethod.GET):
+        return cls("json", target_url, "json", method)
+    
+    @classmethod
+    @beartype
+    def JS(cls, target_url: Optional[str] = None, method: HttpMethod = HttpMethod.GET):
+        return cls("js", target_url, "js", method)
+    
+    @classmethod
+    @beartype
+    def CSS(cls, target_url: Optional[str] = None, method: HttpMethod = HttpMethod.GET):
+        return cls("css", target_url, "css", method)
+    
+    @classmethod
+    @beartype
+    def IMAGE(cls, target_url: Optional[str] = None, method: HttpMethod = HttpMethod.GET):
+        return cls("image", target_url, "image", method)
 
 
 class BaseAPI:
@@ -21,13 +82,15 @@ class BaseAPI:
                  trust_env:         bool       = False,
                  timeout:           float      = 10.0
         ) -> None:
-        self._debug = debug
-        self._proxy = proxy
-        self._autoclose_browser = autoclose_browser
+        # Используем property для установки настроек
+        self.debug = debug
+        self.proxy = proxy
+        self.autoclose_browser = autoclose_browser
+        self.trust_env = trust_env
+        self.timeout = timeout
+        
         self._browser = None
         self._bcontext = None
-        self._trust_env = trust_env
-        self._timeout = timeout
 
         self._logger = logging.getLogger(self.__class__.__name__)
         handler = logging.StreamHandler()
@@ -36,8 +99,58 @@ class BaseAPI:
         if not self._logger.hasHandlers():
             self._logger.addHandler(handler)
 
+    # Properties для настроек
+    @property
+    def debug(self) -> bool:
+        return self._debug
 
-    async def fetch(self, url: str) -> dict:
+    @debug.setter
+    @beartype
+    def debug(self, value: bool) -> None:
+        self._debug = value
+
+    @property
+    def proxy(self) -> str | None:
+        return self._proxy
+
+    @proxy.setter
+    @beartype
+    def proxy(self, value: str | None) -> None:
+        self._proxy = value
+
+    @property
+    def autoclose_browser(self) -> bool:
+        return self._autoclose_browser
+
+    @autoclose_browser.setter
+    @beartype
+    def autoclose_browser(self, value: bool) -> None:
+        self._autoclose_browser = value
+
+    @property
+    def trust_env(self) -> bool:
+        return self._trust_env
+
+    @trust_env.setter
+    @beartype
+    def trust_env(self, value: bool) -> None:
+        self._trust_env = value
+
+    @property
+    def timeout(self) -> float:
+        return self._timeout
+
+    @timeout.setter
+    @beartype
+    def timeout(self, value: float) -> None:
+        self._timeout = value
+
+
+    @beartype
+    async def fetch(self, url: str, handler: Handler = Handler.MAIN(), wait_selector: Optional[str] = None) -> Response:  
+        if not self._bcontext:
+            await self.new_session(include_browser=True)
+        
         page = await self._bcontext.new_page()
 
         # Готовим Future и колбэк
@@ -46,13 +159,41 @@ class BaseAPI:
 
         def _on_response(resp):
             full_url = urllib.parse.unquote(resp.url)
-            if not (full_url.startswith(url) and resp.request.method == "GET"):
-                return
             ctype = resp.headers.get("content-type", "").lower()
-            if "application/json" not in ctype:
-                return
-            if not response_future.done():
-                response_future.set_result(resp)
+            
+            if handler.handler_type == "main":
+                # Для MAIN проверяем основную страницу
+                if not (full_url.startswith(url) and resp.request.method == handler.method.value):
+                    return
+                if "application/json" in ctype or "text/html" in ctype or "image/" in ctype:
+                    if not response_future.done():
+                        response_future.set_result(resp)
+            else:
+                # Для всех остальных типов
+                should_capture = False
+                
+                # Проверяем URL если указан
+                if handler.target_url and not full_url.startswith(handler.target_url):
+                    return
+                # Проверяем метод запроса
+                elif resp.request.method != handler.method.value:
+                    return
+                
+                # Проверяем тип контента на основе реального content-type из response
+                if handler.handler_type == "json":
+                    should_capture = "application/json" in ctype
+                elif handler.handler_type == "js":
+                    should_capture = 'javascript' in ctype
+                elif handler.handler_type == "css":
+                    should_capture = 'text/css' in ctype
+                elif handler.handler_type == "image":
+                    should_capture = "image/" in ctype
+                elif handler.handler_type == "capture":
+                    # Любой первый запрос
+                    should_capture = True
+                
+                if should_capture and not response_future.done():
+                    response_future.set_result(resp)
 
         self._bcontext.on("response", _on_response)
 
@@ -60,8 +201,39 @@ class BaseAPI:
             await page.evaluate(f"window.open('{url}', '_blank');")
         popup = await ev.value
 
-        resp = await asyncio.wait_for(response_future, timeout=10.0)
-        data = await resp.json()
+        # Ожидание селектора если указан
+        if wait_selector:
+            await popup.wait_for_selector(wait_selector, timeout=self.timeout * 1000)
+
+        resp = await asyncio.wait_for(response_future, timeout=self.timeout)
+
+        # Обработка ответа ВСЕГДА на основе реального content-type из response
+        ctype = resp.headers.get("content-type", "").lower()
+        
+        if "application/json" in ctype:
+            data = await resp.json()
+        elif "image/" in ctype:
+            # Для изображений возвращаем BytesIO с заполненным name
+            image_bytes = await resp.body()
+            data = BytesIO(image_bytes)
+            # Извлекаем имя файла из URL или используем расширение на основе content-type
+            url_path = urllib.parse.urlparse(resp.url).path
+            if url_path and '.' in url_path:
+                data.name = url_path.split('/')[-1]
+            else:
+                # Определяем расширение по content-type
+                ext_map = {
+                    'image/jpeg': '.jpg',
+                    'image/jpg': '.jpg', 
+                    'image/png': '.png',
+                    'image/gif': '.gif',
+                    'image/webp': '.webp',
+                    'image/svg+xml': '.svg'
+                }
+                ext = ext_map.get(ctype, '.img')
+                data.name = f"image{ext}"
+        else:
+            data = await resp.text()
 
         # Собираем куки
         raw = await self._bcontext.cookies()
@@ -70,21 +242,26 @@ class BaseAPI:
             for c in raw
         }
 
-        await self._bcontext.close()
+        await popup.close()
+        await page.close()
 
         self.cookies = new_cookies
-        await self._new_session()
         
-        return data
+        # Возвращаем объект Response с атрибутами status, headers, response
+        return Response(
+            status=resp.status,
+            headers=dict(resp.headers),
+            response=data
+        )
 
     @beartype
     async def new_session(self, include_browser: bool = False) -> None:
         await self.close(include_browser=include_browser)
 
         if include_browser:
-            prox = parse_proxy(self._proxy, self._trust_env, self._logger)
-            self._logger.info(f"Opening new browser connection with proxy: {'SYSTEM_PROXY' if prox and not self._proxy else prox}")
-            self._browser = await AsyncCamoufox(headless=not self._debug, proxy=prox, geoip=True).__aenter__()
+            prox = parse_proxy(self.proxy, self.trust_env, self._logger)
+            self._logger.info(f"Opening new browser connection with proxy: {'SYSTEM_PROXY' if prox and not self.proxy else prox}")
+            self._browser = await AsyncCamoufox(headless=not self.debug, proxy=prox, geoip=True).__aenter__()
             self._bcontext = await self._browser.new_context()
             self._logger.info(f"A new browser context has been opened.")
 
