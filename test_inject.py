@@ -19,7 +19,8 @@ async def test_inject_fetch():
         # Тестируем inject_fetch
         resp = await page.inject_fetch("https://httpbin.org/get")
         print(f"Status: {resp.status}")
-        print(f"Headers: {resp.headers}")
+        print(f"Response Headers: {resp.response_headers}")
+        print(f"Request Headers: {resp.request_headers}")
         print(f"Response type: {resp.response}")
         print(f"Duration: {resp.duration:.3f}s")
         

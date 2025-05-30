@@ -26,12 +26,14 @@ class Response:
     """Класс для представления ответа от API"""
     
     @beartype
-    def __init__(self, status: int, headers: dict, response: Union[dict, list, str, BytesIO], 
-                 duration: float = 0.0):
+    def __init__(self, status: int, request_headers: dict, response_headers: dict, response: Union[dict, list, str, BytesIO], 
+                 duration: float = 0.0, errorDetails: Optional[dict] = None):
         self.status = status
-        self.headers = headers
+        self.request_headers = request_headers
+        self.response_headers = response_headers
         self.response = response
         self.duration = duration  # Время выполнения запроса в секундах
+        self.errorDetails = errorDetails  # Детали ошибки если есть
 
 
 class Handler:
@@ -307,14 +309,22 @@ class Page:
     async def direct_fetch(self, url: str, handler: Handler = Handler.MAIN(), wait_selector: Optional[str] = None) -> Response:
         start_time = time.time()
 
-        # Готовим Future и колбэк
+        # Готовим Future и колбэки для response и request
         loop = asyncio.get_running_loop()
         response_future = loop.create_future()
+        captured_request_headers = {}
+
+        def _on_request(req):
+            # Перехватываем заголовки запроса для нужного URL
+            if req.url.startswith(url):
+                nonlocal captured_request_headers
+                captured_request_headers = dict(req.headers)
 
         def _on_response(resp):
             if handler.should_capture(resp, url) and not response_future.done():
                 response_future.set_result(resp)
 
+        self.API._bcontext.on("request", _on_request)
         self.API._bcontext.on("response", _on_response)
 
         try:
@@ -338,17 +348,19 @@ class Page:
             }
             self.cookies = new_cookies
         finally:
-            # Удаляем колбэк после завершения
+            # Удаляем колбэки после завершения
+            self.API._bcontext.remove_listener("request", _on_request)
             self.API._bcontext.remove_listener("response", _on_response)
         
         # Вычисляем метрики производительности
         duration = time.time() - start_time
         self.API._logger.info(f"Request completed in {duration:.3f}s")
         
-        # Возвращаем объект Response с атрибутами status, headers, response, duration
+        # Возвращаем объект Response с атрибутами status, request_headers, response_headers, response, duration
         return Response(
             status=resp.status,
-            headers=dict(resp.headers),
+            request_headers=captured_request_headers,
+            response_headers=dict(resp.headers),
             response=data,
             duration=duration
         )
@@ -361,7 +373,7 @@ class Page:
         Args:
             url (str): API endpoint.
             method (str): HTTP метод (GET/POST).
-            data (dict): Данные для POST-запросов.
+            body (dict): Данные для POST-запросов.
 
         Returns:
             dict: Ответ API.
@@ -394,30 +406,47 @@ class Page:
                     custom_headers = await self.API.inject_headers_gen(self)
 
                 if isinstance(custom_headers, dict):
-                    headers = custom_headers
+                    headers.update(custom_headers)
                 else:
                     self.API._logger.warning(f"Custom headers generator returned non-dict: {custom_headers}")
             return headers
 
         start_time = time.time()
+        
+        # Перехватываем заголовки запроса через Playwright
+        captured_request_headers = {}
+        
+        def _on_request(req):
+            # Перехватываем заголовки запроса для нужного URL
+            if req.url == url:
+                nonlocal captured_request_headers
+                captured_request_headers = dict(req.headers)
 
-        # JavaScript-код для выполнения запроса с возвратом статуса и заголовков
-        # Function to load JavaScript code from file
-        script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "inject_fetch.js")
+        # Добавляем слушатель запросов
+        self.API._bcontext.on("request", _on_request)
 
-        def load_inject_script():
-            try:
-                with open(script_path, "r") as file:
-                    return file.read()
-            except FileNotFoundError:
-                raise FileNotFoundError(f"JavaScript file not found at: {script_path}")
+        try:
+            # JavaScript-код для выполнения запроса с возвратом статуса и заголовков
+            script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "inject_fetch.js")
 
-        # Load the script once
-        script = load_inject_script()
+            def load_inject_script():
+                try:
+                    with open(script_path, "r") as file:
+                        return file.read()
+                except FileNotFoundError:
+                    raise FileNotFoundError(f"JavaScript file not found at: {script_path}")
 
-        headers = await gen_headers()
-        body_str = "null" if body is None else json.dumps(body)
-        result = await self._page.evaluate(f"({script})(\"{url}\", \"{method}\", {body_str}, {json.dumps(headers)})")
+            # Load the script once
+            script = load_inject_script()
+
+            headers = await gen_headers()
+            body_str = "null" if body is None else json.dumps(body)
+            result = await self._page.evaluate(f"({script})(\"{url}\", \"{method}\", {body_str}, {json.dumps(headers)})")
+            
+        finally:
+            # Удаляем слушатель запросов
+            self.API._bcontext.remove_listener("request", _on_request)
+        
         duration = time.time() - start_time
         
         # Парсим данные в зависимости от Content-Type
@@ -425,13 +454,44 @@ class Page:
         content_type = result['headers'].get('content-type', '')
         parsed_data = parse_response_data(raw_data, content_type)
         
+        # Обрабатываем Set-Cookie заголовки вручную
+        if 'set-cookie' in result['headers']:
+            set_cookie_header = result['headers']['set-cookie']
+            self.API._logger.debug(f"Processing Set-Cookie header: {set_cookie_header}")
+            
+            # Устанавливаем куки через Playwright API
+            try:
+                # Парсим домен из URL для установки кук
+                from urllib.parse import urlparse
+                parsed_url = urlparse(url)
+                domain = parsed_url.netloc
+                
+                # Простой парсинг Set-Cookie (для более сложных случаев нужен полноценный парсер)
+                for cookie_string in set_cookie_header.split(','):
+                    cookie_parts = cookie_string.strip().split(';')
+                    if cookie_parts:
+                        name_value = cookie_parts[0].split('=', 1)
+                        if len(name_value) == 2:
+                            name, value = name_value
+                            await self.API._bcontext.add_cookies([{
+                                'name': name.strip(),
+                                'value': value.strip(),
+                                'domain': domain,
+                                'path': '/'
+                            }])
+                            self.API._logger.debug(f"Cookie set: {name.strip()}={value.strip()}")
+            except Exception as e:
+                self.API._logger.warning(f"Failed to process Set-Cookie header: {e}")
+        
         self.API._logger.info(f"Inject fetch request completed in {duration:.3f}s")
         
         return Response(
             status=result['status'],
-            headers=result['headers'],
+            request_headers=captured_request_headers,
+            response_headers=result['headers'],
             response=parsed_data,
-            duration=duration
+            duration=duration,
+            errorDetails=result.get('errorDetails')
         )
 
     async def close(self):
