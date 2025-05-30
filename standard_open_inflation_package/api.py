@@ -71,6 +71,41 @@ class Handler:
     def IMAGE(cls, target_url: Optional[str] = None, method: HttpMethod = HttpMethod.GET):
         return cls("image", target_url, "image", method)
 
+    @beartype
+    def should_capture(self, resp, base_url: str) -> bool:
+        """Определяет, должен ли handler захватить данный response"""
+        full_url = urllib.parse.unquote(resp.url)
+        ctype = resp.headers.get("content-type", "").lower()
+        
+        # Проверяем метод запроса
+        if resp.request.method != self.method.value:
+            return False
+        
+        if self.handler_type == "main":
+            # Для MAIN проверяем основную страницу
+            if not full_url.startswith(base_url):
+                return False
+            return "application/json" in ctype or "text/html" in ctype or "image/" in ctype
+        
+        # Для всех остальных типов проверяем URL если указан
+        if self.target_url and not full_url.startswith(self.target_url):
+            return False
+        
+        # Проверяем тип контента на основе реального content-type из response
+        if self.handler_type == "json":
+            return "application/json" in ctype
+        elif self.handler_type == "js":
+            return 'javascript' in ctype
+        elif self.handler_type == "css":
+            return 'text/css' in ctype
+        elif self.handler_type == "image":
+            return "image/" in ctype
+        elif self.handler_type == "capture":
+            # Любой первый запрос
+            return True
+        
+        return False
+
 
 class BaseAPI:
     """
@@ -168,42 +203,8 @@ class BaseAPI:
         response_future = loop.create_future()
 
         def _on_response(resp):
-            full_url = urllib.parse.unquote(resp.url)
-            ctype = resp.headers.get("content-type", "").lower()
-            
-            if handler.handler_type == "main":
-                # Для MAIN проверяем основную страницу
-                if not (full_url.startswith(url) and resp.request.method == handler.method.value):
-                    return
-                if "application/json" in ctype or "text/html" in ctype or "image/" in ctype:
-                    if not response_future.done():
-                        response_future.set_result(resp)
-            else:
-                # Для всех остальных типов
-                should_capture = False
-                
-                # Проверяем URL если указан
-                if handler.target_url and not full_url.startswith(handler.target_url):
-                    return
-                # Проверяем метод запроса
-                elif resp.request.method != handler.method.value:
-                    return
-                
-                # Проверяем тип контента на основе реального content-type из response
-                if handler.handler_type == "json":
-                    should_capture = "application/json" in ctype
-                elif handler.handler_type == "js":
-                    should_capture = 'javascript' in ctype
-                elif handler.handler_type == "css":
-                    should_capture = 'text/css' in ctype
-                elif handler.handler_type == "image":
-                    should_capture = "image/" in ctype
-                elif handler.handler_type == "capture":
-                    # Любой первый запрос
-                    should_capture = True
-                
-                if should_capture and not response_future.done():
-                    response_future.set_result(resp)
+            if handler.should_capture(resp, self._bcontext._base_url) and not response_future.done():
+                response_future.set_result(resp)
 
         self._bcontext.on("response", _on_response)
 
