@@ -1,10 +1,11 @@
-import aiohttp
+import os
 import asyncio
 import urllib.parse
 from camoufox import AsyncCamoufox
 import logging
 from beartype import beartype
-from beartype.typing import Union, Optional
+from beartype.typing import Union, Optional, Callable
+import json
 from enum import Enum
 from io import BytesIO
 import time
@@ -114,11 +115,13 @@ class BaseAPI:
 
     @beartype
     def __init__(self,
-                 debug:             bool       = False,
-                 proxy:             str | None = None,
-                 autoclose_browser: bool       = False,
-                 trust_env:         bool       = False,
-                 timeout:           float      = 10.0
+                 debug:              bool               = False,
+                 proxy:              str | None         = None,
+                 autoclose_browser:  bool               = False,
+                 trust_env:          bool               = False,
+                 timeout:            float              = 10.0,
+                 start_func:         Callable | None = None,
+                 inject_headers_gen: Callable | None = None
         ) -> None:
         # Используем property для установки настроек
         self.debug = debug
@@ -126,7 +129,9 @@ class BaseAPI:
         self.autoclose_browser = autoclose_browser
         self.trust_env = trust_env
         self.timeout = timeout
-        
+        self.start_func = start_func
+        self.inject_headers_gen = inject_headers_gen
+
         self._browser = None
         self._bcontext = None
         self.cookies = {}  # Инициализируем cookies
@@ -187,88 +192,47 @@ class BaseAPI:
         if value > 3600:  # 1 час максимум
             raise ValueError("Timeout too large (max 3600 seconds)")
         self._timeout = value
+    
+    @property
+    def start_func(self) -> Callable | None:
+        return self._start_func
+    
+    @start_func.setter
+    @beartype
+    def start_func(self, value: Callable | None) -> None:
+        self._start_func = value
 
+    @property
+    def inject_headers_gen(self) -> Callable | None:
+        return self._inject_headers_gen
+    
+    @inject_headers_gen.setter
+    @beartype
+    def inject_headers_gen(self, value: Callable | None) -> None:
+        self._inject_headers_gen = value
+    
 
     @beartype
-    async def fetch(self, url: str, handler: Handler = Handler.MAIN(), wait_selector: Optional[str] = None) -> Response:  
+    async def new_direct_fetch(self, url: str, handler: Handler = Handler.MAIN(), wait_selector: Optional[str] = None) -> Response:  
+        page = await self.new_page()
+        response = await page.direct_fetch(url, handler, wait_selector)
+        await page.close()
+        return response
+
+    @beartype
+    async def new_page(self) -> 'Page':
+        """
+        Создает новую страницу в текущем контексте браузера.
+        :return: Объект Page
+        """
         if not self._bcontext:
             await self.new_session(include_browser=True)
         
-        start_time = time.time()
-
+        self._logger.info("Creating a new page in the browser context...")
         page = await self._bcontext.new_page()
-
-        # Готовим Future и колбэк
-        loop = asyncio.get_running_loop()
-        response_future = loop.create_future()
-
-        def _on_response(resp):
-            if handler.should_capture(resp, self._bcontext._base_url) and not response_future.done():
-                response_future.set_result(resp)
-
-        self._bcontext.on("response", _on_response)
-
-        async with self._bcontext.expect_page() as ev:
-            await page.evaluate(f"window.open('{url}', '_blank');")
-        popup = await ev.value
-
-        # Ожидание селектора если указан
-        if wait_selector:
-            await popup.wait_for_selector(wait_selector, timeout=self.timeout * 1000)
-
-        resp = await asyncio.wait_for(response_future, timeout=self.timeout)
-
-        # Обработка ответа ВСЕГДА на основе реального content-type из response
-        ctype = resp.headers.get("content-type", "").lower()
+        self._logger.info("New page created successfully.")
         
-        if "application/json" in ctype:
-            data = await resp.json()
-        elif "image/" in ctype:
-            # Для изображений возвращаем BytesIO с заполненным name
-            image_bytes = await resp.body()
-            data = BytesIO(image_bytes)
-            # Извлекаем имя файла из URL или используем расширение на основе content-type
-            url_path = urllib.parse.urlparse(resp.url).path
-            if url_path and '.' in url_path:
-                data.name = url_path.split('/')[-1]
-            else:
-                # Определяем расширение по content-type
-                ext_map = {
-                    'image/jpeg': '.jpg',
-                    'image/jpg': '.jpg', 
-                    'image/png': '.png',
-                    'image/gif': '.gif',
-                    'image/webp': '.webp',
-                    'image/svg+xml': '.svg'
-                }
-                ext = ext_map.get(ctype, '.img')
-                data.name = f"image{ext}"
-        else:
-            data = await resp.text()
-
-        # Собираем куки
-        raw = await self._bcontext.cookies()
-        new_cookies = {
-            urllib.parse.unquote(c["name"]): urllib.parse.unquote(c["value"])
-            for c in raw
-        }
-
-        await popup.close()
-        await page.close()
-
-        self.cookies = new_cookies
-        
-        # Вычисляем метрики производительности
-        duration = time.time() - start_time
-        self._logger.info(f"Request completed in {duration:.3f}s")
-        
-        # Возвращаем объект Response с атрибутами status, headers, response, duration
-        return Response(
-            status=resp.status,
-            headers=dict(resp.headers),
-            response=data,
-            duration=duration
-        )
+        return Page(self, page)
 
     @beartype
     async def new_session(self, include_browser: bool = False) -> None:
@@ -280,6 +244,14 @@ class BaseAPI:
             self._browser = await AsyncCamoufox(headless=not self.debug, proxy=prox, geoip=True).__aenter__()
             self._bcontext = await self._browser.new_context()
             self._logger.info(f"A new browser context has been opened.")
+            if self.start_func:
+                self._logger.info(f"Executing start function: {self.start_func.__name__}")
+                if not asyncio.iscoroutinefunction(self.start_func):
+                    self.start_func(self)
+                else:
+                    await self.start_func(self)
+                self._logger.info(f"Start function {self.start_func.__name__} executed successfully.")
+            self._logger.info("New session created successfully.")
 
     @beartype
     async def close(
@@ -326,3 +298,166 @@ class BaseAPI:
                 self._logger.warning(f"The {name} connection was not open")
 
 
+class Page:
+    def __init__(self, api: BaseAPI, page):
+        self.API = api
+        self._page = page
+    
+    @beartype
+    async def direct_fetch(self, url: str, handler: Handler = Handler.MAIN(), wait_selector: Optional[str] = None) -> Response:
+        start_time = time.time()
+
+        # Готовим Future и колбэк
+        loop = asyncio.get_running_loop()
+        response_future = loop.create_future()
+
+        def _on_response(resp):
+            if handler.should_capture(resp, url) and not response_future.done():
+                response_future.set_result(resp)
+
+        self.API._bcontext.on("response", _on_response)
+
+        try:
+            await self._page.evaluate(f"window.location.href = '{url}';")
+
+            # Ожидание селектора если указан
+            if wait_selector:
+                await self._page.wait_for_selector(wait_selector, timeout=self.API.timeout * 1000)
+
+            resp = await asyncio.wait_for(response_future, timeout=self.API.timeout)
+
+            # Обработка ответа ВСЕГДА на основе реального content-type из response
+            ctype = resp.headers.get("content-type", "").lower()
+            
+            if "application/json" in ctype:
+                data = await resp.json()
+            elif "image/" in ctype:
+                # Для изображений возвращаем BytesIO с заполненным name
+                image_bytes = await resp.body()
+                data = BytesIO(image_bytes)
+                # Извлекаем имя файла из URL или используем расширение на основе content-type
+                url_path = urllib.parse.urlparse(resp.url).path
+                if url_path and '.' in url_path:
+                    data.name = url_path.split('/')[-1]
+                else:
+                    # Определяем расширение по content-type
+                    ext_map = {
+                        'image/jpeg': '.jpg',
+                        'image/jpg': '.jpg', 
+                        'image/png': '.png',
+                        'image/gif': '.gif',
+                        'image/webp': '.webp',
+                        'image/svg+xml': '.svg'
+                    }
+                    ext = ext_map.get(ctype, '.img')
+                    data.name = f"image{ext}"
+            else:
+                data = await resp.text()
+
+            # Собираем куки
+            raw = await self.API._bcontext.cookies()
+            new_cookies = {
+                urllib.parse.unquote(c["name"]): urllib.parse.unquote(c["value"])
+                for c in raw
+            }
+            self.cookies = new_cookies
+        finally:
+            # Удаляем колбэк после завершения
+            self.API._bcontext.remove_listener("response", _on_response)
+        
+        # Вычисляем метрики производительности
+        duration = time.time() - start_time
+        self.API._logger.info(f"Request completed in {duration:.3f}s")
+        
+        # Возвращаем объект Response с атрибутами status, headers, response, duration
+        return Response(
+            status=resp.status,
+            headers=dict(resp.headers),
+            response=data,
+            duration=duration
+        )
+
+    @beartype
+    async def inject_fetch(self, url: str, method: str = "GET", body: dict | None = None) -> Response:
+        """
+        Выполнение HTTP-запроса через JavaScript в браузере.
+
+        Args:
+            url (str): API endpoint.
+            method (str): HTTP метод (GET/POST).
+            data (dict): Данные для POST-запросов.
+
+        Returns:
+            dict: Ответ API.
+        """
+        
+        # Получение accessToken из cookies
+        #access_token = await self._page.evaluate("""
+        #    () => {
+        #        const cookies = document.cookie.split('; ').reduce((acc, cookie) => {
+        #            const [key, value] = cookie.split('=');
+        #            acc[key] = value;
+        #            return acc;
+        #        }, {});
+        #        return JSON.parse(decodeURIComponent(cookies['session'])).accessToken;
+        #    }
+        #""")
+        #if not access_token:
+        #    raise ValueError("Access token not found")
+
+
+        async def gen_headers() -> dict:
+            """Генерация заголовков для запроса"""
+            headers = {
+                "Content-Type": "application/json"
+            }
+            if self.API.inject_headers_gen:
+                if not asyncio.iscoroutinefunction(self.API.inject_headers_gen):
+                    custom_headers = self.API.inject_headers_gen(self)
+                else:
+                    custom_headers = await self.API.inject_headers_gen(self)
+
+                if isinstance(custom_headers, dict):
+                    headers = custom_headers
+                else:
+                    self.API._logger.warning(f"Custom headers generator returned non-dict: {custom_headers}")
+            return headers
+
+        start_time = time.time()
+
+        # JavaScript-код для выполнения запроса с возвратом статуса и заголовков
+        # Function to load JavaScript code from file
+        script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "inject_fetch.js")
+
+        def load_inject_script():
+            try:
+                with open(script_path, "r") as file:
+                    return file.read()
+            except FileNotFoundError:
+                raise FileNotFoundError(f"JavaScript file not found at: {script_path}")
+
+        # Load the script once
+        script = load_inject_script()
+
+        headers = await gen_headers()
+        body_str = "null" if body is None else json.dumps(body)
+        result = await self._page.evaluate(f"({script})(\"{url}\", \"{method}\", {body_str}, {json.dumps(headers)})")
+        duration = time.time() - start_time
+        
+        self.API._logger.info(f"Inject fetch request completed in {duration:.3f}s")
+        
+        return Response(
+            status=result['status'],
+            headers=result['headers'],
+            response=result['data'],
+            duration=duration
+        )
+
+    async def close(self):
+        """Закрывает страницу"""
+        if self._page:
+            await self._page.close()
+            self._page = None
+            self.API._logger.info("Page closed successfully")
+        else:
+            self.API._logger.info("No page to close")
