@@ -1,8 +1,10 @@
 import os
 import re
 import logging
+import json
 from beartype.typing import Dict, Union
 from beartype import beartype
+from io import BytesIO
 from . import patterns as Patterns
 
 @beartype
@@ -57,3 +59,45 @@ def parse_proxy(proxy_str: Union[str, None], trust_env: bool, logger: logging.Lo
         
         logger.info(f"Proxy parsed as regex")
         return proxy_dict
+
+@beartype
+def parse_response_data(data: str, content_type: str) -> Union[dict, list, str, BytesIO]:
+    """
+    Парсит данные ответа на основе content-type.
+    
+    Args:
+        data: Сырые данные как строка
+        content_type: Content-Type из заголовков ответа
+    
+    Returns:
+        Распарсенные данные соответствующего типа
+    """
+    content_type = content_type.lower()
+    
+    if "application/json" in content_type:
+        try:
+            return json.loads(data)
+        except json.JSONDecodeError:
+            # Если не удалось распарсить как JSON, возвращаем как есть
+            return data
+    elif "image/" in content_type:
+        # Для изображений создаем BytesIO объект
+        # Примечание: для inject_fetch бинарные данные могут быть не корректными
+        parsed_data = BytesIO(data.encode('utf-8'))
+        
+        # Определяем расширение по content-type
+        ext_map = {
+            'image/jpeg': '.jpg',
+            'image/jpg': '.jpg', 
+            'image/png': '.png',
+            'image/gif': '.gif',
+            'image/webp': '.webp',
+            'image/svg+xml': '.svg'
+        }
+        ext = ext_map.get(content_type.split(';')[0], '.img')
+        parsed_data.name = f"image{ext}"
+        
+        return parsed_data
+    else:
+        # Для всех остальных типов возвращаем как текст
+        return data

@@ -9,7 +9,7 @@ import json
 from enum import Enum
 from io import BytesIO
 import time
-from .tools import parse_proxy
+from .tools import parse_proxy, parse_response_data
 
 
 class HttpMethod(Enum):
@@ -326,33 +326,9 @@ class Page:
 
             resp = await asyncio.wait_for(response_future, timeout=self.API.timeout)
 
-            # Обработка ответа ВСЕГДА на основе реального content-type из response
-            ctype = resp.headers.get("content-type", "").lower()
-            
-            if "application/json" in ctype:
-                data = await resp.json()
-            elif "image/" in ctype:
-                # Для изображений возвращаем BytesIO с заполненным name
-                image_bytes = await resp.body()
-                data = BytesIO(image_bytes)
-                # Извлекаем имя файла из URL или используем расширение на основе content-type
-                url_path = urllib.parse.urlparse(resp.url).path
-                if url_path and '.' in url_path:
-                    data.name = url_path.split('/')[-1]
-                else:
-                    # Определяем расширение по content-type
-                    ext_map = {
-                        'image/jpeg': '.jpg',
-                        'image/jpg': '.jpg', 
-                        'image/png': '.png',
-                        'image/gif': '.gif',
-                        'image/webp': '.webp',
-                        'image/svg+xml': '.svg'
-                    }
-                    ext = ext_map.get(ctype, '.img')
-                    data.name = f"image{ext}"
-            else:
-                data = await resp.text()
+            # Получаем сырые данные и content-type для единообразного парсинга
+            raw_data = await resp.text()
+            data = parse_response_data(raw_data, resp.headers.get("content-type", ""))
 
             # Собираем куки
             raw = await self.API._bcontext.cookies()
@@ -444,12 +420,17 @@ class Page:
         result = await self._page.evaluate(f"({script})(\"{url}\", \"{method}\", {body_str}, {json.dumps(headers)})")
         duration = time.time() - start_time
         
+        # Парсим данные в зависимости от Content-Type
+        raw_data = result['data']
+        content_type = result['headers'].get('content-type', '')
+        parsed_data = parse_response_data(raw_data, content_type)
+        
         self.API._logger.info(f"Inject fetch request completed in {duration:.3f}s")
         
         return Response(
             status=result['status'],
             headers=result['headers'],
-            response=result['data'],
+            response=parsed_data,
             duration=duration
         )
 

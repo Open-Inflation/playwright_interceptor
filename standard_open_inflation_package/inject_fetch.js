@@ -11,7 +11,7 @@
             response.headers.forEach((value, name) => {
                 headers[name] = value;
             });
-            return response.json().then(data => {
+            return response.text().then(data => {
                 resolve({
                     status: response.status,
                     headers: headers,
