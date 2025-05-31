@@ -57,6 +57,31 @@ async def test_interceptor_image():
     await api.close()
 
 @pytest.mark.asyncio
+async def test_interceptor_video():
+    api = BaseAPI(timeout=TIMEOUT)
+    await api.new_session()
+
+@pytest.mark.asyncio
+async def test_interceptor_font():
+    api = BaseAPI(timeout=TIMEOUT)
+    await api.new_session()
+
+@pytest.mark.asyncio
+async def test_interceptor_application():
+    api = BaseAPI(timeout=TIMEOUT)
+    await api.new_session()
+
+@pytest.mark.asyncio
+async def test_interceptor_archive():
+    api = BaseAPI(timeout=TIMEOUT)
+    await api.new_session()
+
+@pytest.mark.asyncio
+async def test_interceptor_text():
+    api = BaseAPI(timeout=TIMEOUT)
+    await api.new_session()
+
+@pytest.mark.asyncio
 async def test_interceptor_any():
     api = BaseAPI(timeout=TIMEOUT)
     await api.new_session()

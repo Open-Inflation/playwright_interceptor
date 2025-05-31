@@ -3,6 +3,7 @@ from beartype import beartype
 from beartype.typing import Union, Optional, Dict, Any, List
 from enum import Enum
 from io import BytesIO
+import urllib.parse
 from . import config as CFG
 
 
@@ -14,6 +15,7 @@ class HttpMethod(Enum):
     PATCH = "PATCH"
     HEAD = "HEAD"
     OPTIONS = "OPTIONS"
+    ANY = "ANY"  # Специальный метод для захвата любых запросов
 
 
 class Response:
@@ -105,6 +107,41 @@ class Handler:
     @beartype
     def IMAGE(cls, startswith_url: Optional[str] = None, method: HttpMethod = HttpMethod.GET):
         return cls("image", startswith_url, "image", method)
+    
+    @classmethod
+    @beartype
+    def VIDEO(cls, startswith_url: Optional[str] = None, method: HttpMethod = HttpMethod.GET):
+        return cls("video", startswith_url, "video", method)
+    
+    @classmethod
+    @beartype
+    def AUDIO(cls, startswith_url: Optional[str] = None, method: HttpMethod = HttpMethod.GET):
+        return cls("audio", startswith_url, "audio", method)
+    
+    @classmethod
+    @beartype
+    def FONT(cls, startswith_url: Optional[str] = None, method: HttpMethod = HttpMethod.GET):
+        return cls("font", startswith_url, "font", method)
+    
+    @classmethod
+    @beartype
+    def APPLICATION(cls, startswith_url: Optional[str] = None, method: HttpMethod = HttpMethod.GET):
+        return cls("application", startswith_url, "application", method)
+    
+    @classmethod
+    @beartype
+    def ARCHIVE(cls, startswith_url: Optional[str] = None, method: HttpMethod = HttpMethod.GET):
+        return cls("archive", startswith_url, "archive", method)
+    
+    @classmethod
+    @beartype
+    def TEXT(cls, startswith_url: Optional[str] = None, method: HttpMethod = HttpMethod.GET):
+        return cls("text", startswith_url, "text", method)
+    
+    @classmethod
+    @beartype
+    def NONE(cls):
+        return cls("none")
 
     @beartype
     def should_capture(self, resp, base_url: str) -> bool:
@@ -113,14 +150,12 @@ class Handler:
         ctype = resp.headers.get("content-type", "").lower()
         
         # Проверяем метод запроса
-        if resp.request.method != self.method.value:
+        if self.method != HttpMethod.ANY and resp.request.method != self.method.value:
             return False
         
         if self.handler_type == "main":
             # Для MAIN проверяем основную страницу
-            if not full_url.startswith(base_url):
-                return False
-            return CFG.CONTENT_TYPE_JSON in ctype or CFG.CONTENT_TYPE_HTML in ctype or CFG.CONTENT_TYPE_IMAGE in ctype
+            return full_url == base_url
         
         # Для всех остальных типов проверяем URL если указан
         if self.startswith_url and not full_url.startswith(self.startswith_url):
@@ -129,13 +164,25 @@ class Handler:
         # Проверяем тип контента на основе реального content-type из response
         match self.handler_type:
             case "json":
-                return CFG.CONTENT_TYPE_JSON in ctype
+                return ctype in CFG.JSON_EXTENSIONS
             case "js":
-                return CFG.CONTENT_TYPE_JAVASCRIPT in ctype
+                return ctype in CFG.JS_EXTENSIONS
             case "css":
-                return CFG.CONTENT_TYPE_CSS in ctype
+                return ctype in CFG.CSS_EXTENSIONS
             case "image":
-                return CFG.CONTENT_TYPE_IMAGE in ctype
+                return ctype in CFG.IMAGE_EXTENSIONS
+            case "video":
+                return ctype in CFG.VIDEO_EXTENSIONS
+            case "audio":
+                return ctype in CFG.AUDIO_EXTENSIONS
+            case "font":
+                return ctype in CFG.FONT_EXTENSIONS
+            case "application":
+                return ctype in CFG.APPLICATION_EXTENSIONS
+            case "archive":
+                return ctype in CFG.ARCHIVE_EXTENSIONS
+            case "text":
+                return ctype in CFG.TEXT_EXTENSIONS
             case "any":
                 # Любой первый запрос
                 return True

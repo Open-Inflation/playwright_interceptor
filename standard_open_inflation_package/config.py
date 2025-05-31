@@ -1,17 +1,9 @@
-
 # http(s)://user:pass@host:port
 PROXY = r'^(?:(?P<scheme>https?:\/\/))?(?:(?P<username>[^:@]+):(?P<password>[^@]+)@)?(?P<host>[^:\/]+)(?::(?P<port>\d+))?$'
 
 # Timeout constants
 MAX_TIMEOUT_SECONDS = 3600  # 1 час максимум
 MILLISECONDS_MULTIPLIER = 1000  # Конвертация секунд в миллисекунды
-
-# Content-Type constants
-CONTENT_TYPE_JSON = "application/json"
-CONTENT_TYPE_HTML = "text/html"
-CONTENT_TYPE_IMAGE = "image/"
-CONTENT_TYPE_JAVASCRIPT = "javascript"
-CONTENT_TYPE_CSS = "text/css"
 
 # JavaScript file name
 INJECT_FETCH_JS_FILE = "inject_fetch.js"
@@ -51,7 +43,8 @@ LOG_SYSTEM_PROXY = "SYSTEM_PROXY"
 LOG_PROCESSING_COOKIE = "Processing Set-Cookie header"
 LOG_COOKIE_SET = "Cookie set"
 LOG_COOKIE_PROCESSING_FAILED = "Failed to process Set-Cookie header"
-LOG_REQUEST_MODIFIER_WARNING = "request_modifier_func returned non-Request object"
+LOG_REQUEST_MODIFIER_FAILED_TYPE = "request_modifier_func returned non-Request object"
+LOG_REQUEST_MODIFIER_ANY_TYPE = "Request method ANY - is not a specific type."
 LOG_PAGE_NOT_AVAILABLE = "Page is not available"
 
 # File extensions mapping
@@ -68,6 +61,115 @@ IMAGE_EXTENSIONS = {
     'image/x-ms-bmp': '.bmp',
     'image/tiff': '.tiff',
 }
+
+VIDEO_EXTENSIONS = {
+    'video/mp4': '.mp4',
+    'video/webm': '.webm',
+    'video/ogg': '.ogv',
+    'video/avi': '.avi',
+    'video/x-msvideo': '.avi',
+    'video/quicktime': '.mov',
+    'video/x-ms-wmv': '.wmv',
+    'video/x-flv': '.flv',
+    'video/3gpp': '.3gp',
+    'video/x-matroska': '.mkv',
+}
+
+AUDIO_EXTENSIONS = {
+    'audio/mpeg': '.mp3',
+    'audio/mp3': '.mp3',
+    'audio/wav': '.wav',
+    'audio/x-wav': '.wav',
+    'audio/ogg': '.ogg',
+    'audio/flac': '.flac',
+    'audio/aac': '.aac',
+    'audio/x-ms-wma': '.wma',
+    'audio/mp4': '.m4a',
+    'audio/webm': '.weba',
+}
+
+FONT_EXTENSIONS = {
+    'font/ttf': '.ttf',
+    'font/otf': '.otf',
+    'font/woff': '.woff',
+    'font/woff2': '.woff2',
+    'application/font-woff': '.woff',
+    'application/font-woff2': '.woff2',
+    'application/x-font-ttf': '.ttf',
+    'application/x-font-otf': '.otf',
+    'application/vnd.ms-fontobject': '.eot',
+}
+
+APPLICATION_EXTENSIONS = {
+    'application/pdf': '.pdf',
+    'application/vnd.ms-excel': '.xls',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+    'application/msword': '.doc',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+    'application/vnd.ms-powerpoint': '.ppt',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
+    'application/octet-stream': '.bin',
+    'application/x-executable': '.exe',
+    'application/x-sharedlib': '.so',
+    'application/x-library': '.lib',
+}
+
+ARCHIVE_EXTENSIONS = {
+    'application/zip': '.zip',
+    'application/x-rar-compressed': '.rar',
+    'application/x-7z-compressed': '.7z',
+    'application/x-tar': '.tar',
+    'application/gzip': '.gz',
+    'application/x-bzip2': '.bz2',
+    'application/x-xz': '.xz',
+    'application/x-lzma': '.lzma',
+    'application/x-compress': '.Z',
+    'application/x-cab': '.cab',
+}
+
+TEXT_EXTENSIONS = {
+    'text/plain': '.txt',
+    'text/csv': '.csv',
+    'text/xml': '.xml',
+    'text/markdown': '.md',
+    'text/rtf': '.rtf',
+    'application/xml': '.xml',
+    'application/rss+xml': '.rss',
+    'application/atom+xml': '.atom',
+}
+
+# JSON extensions (отдельно, так как это самостоятельный формат)
+JSON_EXTENSIONS = {
+    'application/json': '.json',
+    'application/ld+json': '.jsonld',
+    'application/json-patch+json': '.json-patch',
+}
+
+JS_EXTENSIONS = {
+    'application/javascript': '.js',
+    'text/javascript': '.js',
+    'application/x-javascript': '.js',
+}
+
+CSS_EXTENSIONS = {
+    'text/css': '.css',
+    'application/css': '.css',
+    'application/x-css': '.css',
+}
+
+# Archive MIME types (для проверки архивов)
+ARCHIVE_MIME_TYPES = [
+    'application/zip',
+    'application/gzip', 
+    'application/x-rar-compressed',
+    'application/x-7z-compressed',
+    'application/x-tar',
+    'application/x-bzip2',
+    'application/x-xz',
+    'application/x-lzma',
+    'application/x-compress',
+    'application/x-cab',
+]
 
 # Default file extensions
 DEFAULT_IMAGE_EXTENSION = '.img'

@@ -6,7 +6,7 @@ from beartype import beartype
 from beartype.typing import Union, Optional
 from .tools import parse_response_data
 from . import config as CFG
-from .models import Response, NetworkError, Handler, Request, HandlerSearchFailedError
+from .models import Response, NetworkError, Handler, Request, HandlerSearchFailedError, HttpMethod
 import copy
 from urllib.parse import urlparse
 
@@ -40,10 +40,12 @@ class Page:
             
             # Проверяем что возвращен объект Request
             if isinstance(modified_request, Request):
-                return modified_request
+                if modified_request.method != HttpMethod.ANY:
+                    return modified_request
+                else:
+                    self.API._logger.warning(CFG.LOG_REQUEST_MODIFIER_ANY_TYPE)
             else:
-                self.API._logger.warning(f"{CFG.LOG_REQUEST_MODIFIER_WARNING}: {type(modified_request)}")
-                return request_obj
+                self.API._logger.warning(f"{CFG.LOG_REQUEST_MODIFIER_FAILED_TYPE}: {type(modified_request)}")
         
         return request_obj
 
