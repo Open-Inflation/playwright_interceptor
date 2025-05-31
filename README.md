@@ -23,17 +23,6 @@
 - Типизация с beartype
 - Асинхронная архитектура
 
-## Архитектура
-
-Библиотека построена на модульной архитектуре:
-
-- **`browser.py`** - управление браузером и сессиями
-- **`page.py`** - взаимодействие со страницами и выполнение запросов
-- **`models.py`** - модели данных (Response, NetworkError, Handler, HttpMethod)
-- **`tools.py`** - утилиты для работы с прокси и парсинга данных
-- **`config.py`** - централизованная конфигурация констант
-- **`utils/`** - дополнительные утилиты (генератор документации)
-
 ## Установка
 
 ```bash
@@ -51,9 +40,9 @@ from standard_open_inflation_package import BaseAPI, Handler
 async def main():
     # Инициализация API с настройками
     api = BaseAPI(
-        debug=True,           # Показывать браузер для отладки
-        timeout=30.0,         # Таймаут запросов
-        proxy="http://proxy:8080"  # Опциональный прокси
+        debug=True,               # Показывать браузер для отладки
+        timeout=30.0,             # Таймаут запросов
+        proxy="http://proxy:8080" # Опциональный прокси
     )
     
     # Создание сессии браузера
@@ -69,7 +58,6 @@ async def main():
         print(f"Статус: {response.status}")
         print(f"Данные: {response.response}")
         print(f"Время выполнения: {response.duration:.3f}с")
-        
     finally:
         await api.close(include_browser=True)
 
@@ -78,93 +66,71 @@ asyncio.run(main())
 
 ### Работа с сессионными токенами и авторизацией
 
-Многие современные сайты требуют выполнения определенной логики для получения сессионных токенов перед API запросами. Например, сайт может устанавливать токены в cookie, которые затем нужно использовать в заголовках.
+Многие современные сайты требуют выполнения определенной логики для получения сессионных токенов перед API запросами.
 
 ```python
 import asyncio
 import json
-from standard_open_inflation_package import BaseAPI, Handler
+from standard_open_inflation_package import BaseAPI, Handler, Request, NetworkError
 
 class SessionBasedScraper:
     def __init__(self):
-        self.access_token = None
+        self._page = None
         self.api = BaseAPI(
             debug=False,
             timeout=60.0,
             start_func=self.initialize_session,  # Инициализация сессии
-            inject_headers_gen=self.generate_auth_headers  # Генерация заголовков с токеном
-        )
-    
-    async def initialize_session(self, api):
-        """
-        Выполняется при создании сессии браузера.
-        Здесь мы загружаем главную страницу для получения сессионных токенов.
-        """
-        print("Инициализация сессии...")
-        
-        # Создаем страницу и загружаем главную страницу
-        page = await api.new_page()
-        
-        # Загружаем главную страницу для инициализации сессии
-        await page.direct_fetch(
-            url="https://www.perekrestok.ru/",
-            handler=Handler.MAIN(),
-            wait_selector="body"
+            request_modifier_func=self.modify_request  # Модификация запросов inject_fetch
         )
         
-        # Получаем cookie с токеном сессии
-        cookies = await api.get_cookies()
-        session_cookie = cookies.get('session')
-        
-        if session_cookie:
-            try:
-                # Парсим JSON из cookie (для Перекрестка)
-                session_data = json.loads(session_cookie)
-                self.access_token = session_data.get('accessToken')
-                print(f"Получен access token: {self.access_token[:20]}...")
-            except json.JSONDecodeError:
-                print("Ошибка парсинга сессионного cookie")
-        
-        await page.close()
+    async def __aenter__(self):
+        """
+        Асинхронный контекстный менеджер для автоматического создания сессии.
+        """
+        self.api.new_session()
+        return self
     
-    async def generate_auth_headers(self, page):
+    async def __aexit__(self, exc_type, exc_value, traceback):
         """
-        Генерирует заголовки с авторизацией для каждого API запроса.
-        Вызывается перед каждым inject_fetch запросом.
+        Асинхронный контекстный менеджер для автоматического закрытия сессии.
         """
-        headers = {
-            "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
-        }
+        await self.api.close(include_browser=True)
+
+    async def initialize_session(self, api: BaseAPI):
+        """
+        Выполняется после создания сессии браузера.
+        Здесь мы загружаем главную страницу для получения сессионных токенов, либо инициализировать страницу для своих функций.
+        """
+        self._page = await api.new_page()
+    
+    async def modify_request(self, request: Request) -> Request:
+        """
+        Модифицирует объект Request перед каждым inject_fetch запросом.
+        Получает объект Request и возвращает его модифицированную версию.
+        """
+        # Например логика сайта требует наличия токена в заголовке
+        cookies = self.api.get_cookies()
+        token = json.loads(cookies["session"])["access_token"]
+        request.add_header("Authorization", f"Bearer {token}")
+
+        # Можем добавить дополнительные параметры
+        request.add_param("client", "web")
         
-        # Добавляем токен авторизации если он есть
-        if self.access_token:
-            headers["Authorization"] = f"Bearer {self.access_token}"
-        
-        return headers
+        return request
     
     async def get_api_data(self):
         """Получение данных через API с правильными заголовками"""
-        await self.api.new_session(include_browser=True)
+        # API запрос с автоматической подстановкой токена
+        result = await page.inject_fetch("https://example.com/api/products")
         
-        try:
-            page = await self.api.new_page()
-            
-            # API запрос с автоматической подстановкой токена
-            result = await page.inject_fetch(
-                url="https://www.perekrestok.ru/api/customer/products",
-                method="GET"
-            )
-            
-            if hasattr(result, 'status') and result.status == 200:
+        if isinstance(result, NetworkError):
+            print(f"Ошибка сети: {result.name} - {result.message}")
+            return None
+        else:
+            if result.status == 200:
                 return result.response
             else:
-                print(f"Ошибка API: {result}")
-                return None
-                
-        finally:
-            await page.close()
-            await self.api.close(include_browser=True)
+                ...
 
 # Использование
 async def main():
@@ -223,7 +189,7 @@ soip-generate-docs-index docs
 - `trust_env: bool = False` - доверять переменным окружения для прокси
 - `timeout: float = 10.0` - таймаут операций в секундах
 - `start_func: Callable | None = None` - **функция инициализации сессии**
-- `inject_headers_gen: Callable | None = None` - **генератор заголовков для inject_fetch**
+- `request_modifier_func: Callable | None = None` - **функция модификации объекта Request**
 
 **О start_func:**
 Функция, которая выполняется один раз при создании новой сессии браузера. Используется для:
@@ -232,10 +198,11 @@ soip-generate-docs-index docs
 - Инициализации токенов доступа
 - Настройки состояния приложения
 
-**О inject_headers_gen:**
-Функция, которая вызывается перед каждым `inject_fetch` запросом для генерации заголовков. Используется для:
+**О request_modifier_func:**
+Функция, которая вызывается перед каждым `inject_fetch` запросом для модификации объекта Request. Используется для:
 - Подстановки токенов авторизации из cookie
 - Динамической генерации заголовков на основе состояния сессии
+- Добавления/удаления параметров запроса
 - Обхода защиты сайтов, требующих специфичные заголовки
 
 **Основные методы:**
@@ -268,7 +235,8 @@ soip-generate-docs-index docs
 - Подходит для API запросов с сохранением контекста сессии
 
 #### `Handler`
-Обработчики для различных типов контента.
+Указывает direct_fetch какой контент требуется получить.
+Перехватывает и возвращает первый подходящий элемент.
 
 **Статические методы:**
 - `Handler.MAIN()` - основная страница (HTML/JSON/изображения)
@@ -276,7 +244,12 @@ soip-generate-docs-index docs
 - `Handler.JS()` - JavaScript файлы
 - `Handler.CSS()` - CSS файлы
 - `Handler.IMAGE()` - изображения
-- `Handler.CAPTURE()` - любой контент
+- `Handler.CAPTURE()` - любой контент (в том числе MAIN)
+
+Каждый из перечисленных принимает `target_url` (str) и `type` (HttpMethod).
+
+#### `HttpMethod`
+Enum перечисление HTTP методов: GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS.
 
 #### `Response`
 Объект ответа с данными запроса.
@@ -296,7 +269,7 @@ soip-generate-docs-index docs
 - `message: str` - сообщение об ошибке
 - `details: dict` - детали ошибки
 - `timestamp: str` - время возникновения
-- `duration: float` - время до ошибки
+- `duration: float` - время выполнения в секундах
 
 ### Утилиты
 
@@ -306,8 +279,8 @@ soip-generate-docs-index docs
 #### `parse_proxy(proxy_str, trust_env, logger) -> Union[Dict[str, str], None]`
 Парсит строку прокси в словарь для Camoufox. Поддерживает форматы:
 - `host:port`
-- `http://user:pass@host:port` 
-- `socks5://user:pass@host:port`
+- `user:pass@host:port`
+- `http://user:pass@host:port`
 
 #### `generate_docs_index(docs_dir: str = "docs") -> bool`
 Генерирует HTML индексную страницу для директории с документацией.
@@ -385,9 +358,6 @@ pip install -e .
 
 # Запуск тестов
 pytest
-
-# Запуск с покрытием
-pytest --cov=standard_open_inflation_package
 ```
 
 ## Конфигурация
@@ -400,23 +370,13 @@ pytest --cov=standard_open_inflation_package
 - Пути к файлам и расширения
 - Значения по умолчанию
 
-## Вклад в проект
+## Архитектура
 
-Мы приветствуем вклад в развитие проекта! Пожалуйста:
+Библиотека построена на модульной архитектуре:
 
-1. Форкните репозиторий
-2. Создайте ветку для новой функции
-3. Добавьте тесты для новой функциональности
-4. Убедитесь, что все тесты проходят
-5. Отправьте Pull Request
-
-## Лицензия
-
-MIT License. См. файл [LICENSE](LICENSE) для подробностей.
-
-## Полезные ссылки
-
-- [GitHub](https://github.com/Open-Inflation/standard_open_inflation_package)
-- [PyPI](https://pypi.org/project/standard_open_inflation_package/)
-- [Discord сообщество](https://discord.gg/UnJnGHNbBp)
-- [Telegram канал](https://t.me/miskler_dev)
+- **`browser.py`** - управление браузером и сессиями
+- **`page.py`** - взаимодействие со страницами и выполнение запросов
+- **`models.py`** - модели данных (Request, Response, NetworkError, Handler, HttpMethod)
+- **`tools.py`** - утилиты для работы с прокси и парсинга данных
+- **`config.py`** - централизованная конфигурация констант
+- **`utils/`** - дополнительные утилиты (генератор index страницы документации scheme for humans)

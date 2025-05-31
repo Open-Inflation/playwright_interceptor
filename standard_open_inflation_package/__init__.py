@@ -10,7 +10,7 @@ Standard Open Inflation Package
 from .tools import get_env_proxy, parse_proxy
 
 # Импорт основных классов из модульной структуры
-from .models import HttpMethod, Response, NetworkError, Handler
+from .models import HttpMethod, Response, NetworkError, Handler, Request
 from .browser import BaseAPI  
 from .page import Page
 
@@ -29,6 +29,7 @@ __all__ = [
     'Handler',
     
     # Модели данных
+    'Request',
     'Response', 
     'NetworkError',
     'HttpMethod'

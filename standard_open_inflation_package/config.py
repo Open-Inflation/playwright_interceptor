@@ -51,7 +51,8 @@ LOG_SYSTEM_PROXY = "SYSTEM_PROXY"
 LOG_PROCESSING_COOKIE = "Processing Set-Cookie header"
 LOG_COOKIE_SET = "Cookie set"
 LOG_COOKIE_PROCESSING_FAILED = "Failed to process Set-Cookie header"
-LOG_CUSTOM_HEADERS_WARNING = "Custom headers generator returned non-dict"
+LOG_REQUEST_MODIFIER_WARNING = "request_modifier_func returned non-Request object"
+LOG_PAGE_NOT_AVAILABLE = "Page is not available"
 
 # File extensions mapping
 IMAGE_EXTENSIONS = {

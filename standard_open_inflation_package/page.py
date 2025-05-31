@@ -6,7 +6,9 @@ from beartype import beartype
 from beartype.typing import Union, Optional
 from .tools import parse_response_data
 from . import config as CFG
-from .models import Response, NetworkError, Handler
+from .models import Response, NetworkError, Handler, Request
+import copy
+from urllib.parse import urlparse
 
 
 class Page:
@@ -15,7 +17,41 @@ class Page:
         self._page = page
     
     @beartype
+    async def modify_request(self, request: Union[Request, str]) -> Request:
+        """Создание и модификация объекта запроса"""
+        # Создаем объект Request если передана строка
+        if isinstance(request, str):
+            from .models import HttpMethod
+            default_headers = {"Content-Type": CFG.DEFAULT_CONTENT_TYPE}
+            request_obj = Request(
+                url=request, 
+                headers=default_headers,
+                method=HttpMethod.GET
+            )
+        else:
+            request_obj = request
+
+        # Применяем модификацию если функция задана
+        if self.API.request_modifier_func:
+            modified_request = self.API.request_modifier_func(copy.copy(request_obj))
+            
+            if asyncio.iscoroutinefunction(self.API.request_modifier_func):
+                modified_request = await modified_request
+            
+            # Проверяем что возвращен объект Request
+            if isinstance(modified_request, Request):
+                return modified_request
+            else:
+                self.API._logger.warning(f"{CFG.LOG_REQUEST_MODIFIER_WARNING}: {type(modified_request)}")
+                return request_obj
+        
+        return request_obj
+
+    @beartype
     async def direct_fetch(self, url: str, handler: Handler = Handler.MAIN(), wait_selector: Optional[str] = None) -> Response:
+        if not self._page:
+            raise RuntimeError(CFG.LOG_PAGE_NOT_AVAILABLE)
+            
         start_time = time.time()
 
         # Готовим Future и колбэки для response и request
@@ -67,44 +103,31 @@ class Page:
         )
 
     @beartype
-    async def inject_fetch(self, url: str, method: str = "GET", body: dict | None = None) -> Union[Response, NetworkError]:
+    async def inject_fetch(self, request: Union[Request, str]) -> Union[Response, NetworkError]:
         """
         Выполнение HTTP-запроса через JavaScript в браузере.
 
         Args:
-            url (str): API endpoint.
-            method (str): HTTP метод (GET/POST).
-            body (dict): Данные для POST-запросов.
+            request (Union[Request, str]): Объект Request или URL (для URL будет создан Request с GET методом).
 
         Returns:
-            dict: Ответ API.
+            Union[Response, NetworkError]: Ответ API или ошибка.
         """
         
-        async def gen_headers() -> dict:
-            """Генерация заголовков для запроса"""
-            headers = {
-                "Content-Type": CFG.DEFAULT_CONTENT_TYPE
-            }
-            if self.API.inject_headers_gen:
-                if not asyncio.iscoroutinefunction(self.API.inject_headers_gen):
-                    custom_headers = self.API.inject_headers_gen(self)
-                else:
-                    custom_headers = await self.API.inject_headers_gen(self)
-
-                if isinstance(custom_headers, dict):
-                    headers.update(custom_headers)
-                else:
-                    self.API._logger.warning(f"{CFG.LOG_CUSTOM_HEADERS_WARNING}: {custom_headers}")
-            return headers
+        if not self._page:
+            raise RuntimeError(CFG.LOG_PAGE_NOT_AVAILABLE)
 
         start_time = time.time()
+        
+        # Получаем модифицированный объект Request
+        final_request = await self.modify_request(request)
         
         # Перехватываем заголовки запроса через Playwright
         captured_request_headers = {}
         
         def _on_request(req):
             # Перехватываем заголовки запроса для нужного URL
-            if req.url == url:
+            if req.url == final_request.real_url:
                 nonlocal captured_request_headers
                 captured_request_headers = dict(req.headers)
 
@@ -125,9 +148,10 @@ class Page:
             # Load the script once
             script = load_inject_script()
 
-            headers = await gen_headers()
-            body_str = "null" if body is None else json.dumps(body)
-            result = await self._page.evaluate(f"({script})(\"{url}\", \"{method}\", {body_str}, {json.dumps(headers)})")
+            # Подготавливаем данные для JavaScript
+            body_str = json.dumps(final_request.body) if isinstance(final_request.body, dict) else "null"
+            
+            result = await self._page.evaluate(f"({script})(\"{final_request.real_url}\", \"{final_request.method.value}\", {body_str}, {json.dumps(final_request.headers)})")
             
         finally:
             # Удаляем слушатель запросов
@@ -163,8 +187,7 @@ class Page:
             # Устанавливаем куки через Playwright API
             try:
                 # Парсим домен из URL для установки кук
-                from urllib.parse import urlparse
-                parsed_url = urlparse(url)
+                parsed_url = urlparse(final_request.real_url)
                 domain = parsed_url.netloc
                 
                 # Простой парсинг Set-Cookie (для более сложных случаев нужен полноценный парсер)

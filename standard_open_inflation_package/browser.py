@@ -6,7 +6,7 @@ from beartype import beartype
 from beartype.typing import Union, Optional, Callable
 from .tools import parse_proxy
 from . import config as CFG
-from .models import Response, Handler
+from .models import Response, Handler, Request
 
 
 class BaseAPI:
@@ -16,13 +16,13 @@ class BaseAPI:
 
     @beartype
     def __init__(self,
-                 debug:              bool               = False,
-                 proxy:              str | None         = None,
-                 autoclose_browser:  bool               = False,
-                 trust_env:          bool               = False,
-                 timeout:            float              = 10.0,
-                 start_func:         Callable | None = None,
-                 inject_headers_gen: Callable | None = None
+                 debug:                 bool               = False,
+                 proxy:                 str | None         = None,
+                 autoclose_browser:     bool               = False,
+                 trust_env:            bool               = False,
+                 timeout:              float              = 10.0,
+                 start_func:           Callable | None = None,
+                 request_modifier_func: Callable | None = None
         ) -> None:
         # Используем property для установки настроек
         self.debug = debug
@@ -31,7 +31,7 @@ class BaseAPI:
         self.trust_env = trust_env
         self.timeout = timeout
         self.start_func = start_func
-        self.inject_headers_gen = inject_headers_gen
+        self.request_modifier_func = request_modifier_func
 
         self._browser = None
         self._bcontext = None
@@ -118,13 +118,13 @@ class BaseAPI:
         self._start_func = value
 
     @property
-    def inject_headers_gen(self) -> Callable | None:
-        return self._inject_headers_gen
+    def request_modifier_func(self) -> Callable | None:
+        return self._request_modifier_func
     
-    @inject_headers_gen.setter
+    @request_modifier_func.setter
     @beartype
-    def inject_headers_gen(self, value: Callable | None) -> None:
-        self._inject_headers_gen = value
+    def request_modifier_func(self, value: Callable | None) -> None:
+        self._request_modifier_func = value
     
 
     @beartype
@@ -153,7 +153,7 @@ class BaseAPI:
         return Page(self, page)
 
     @beartype
-    async def new_session(self, include_browser: bool = False) -> None:
+    async def new_session(self, include_browser: bool = True) -> None:
         await self.close(include_browser=include_browser)
 
         if include_browser:
@@ -174,7 +174,7 @@ class BaseAPI:
     @beartype
     async def close(
         self,
-        include_browser: bool = False
+        include_browser: bool = True
     ) -> None:
         """
         Close the Camoufox browser if it is open.

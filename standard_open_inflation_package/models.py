@@ -1,6 +1,6 @@
 import urllib.parse
 from beartype import beartype
-from beartype.typing import Union, Optional
+from beartype.typing import Union, Optional, Dict, Any
 from enum import Enum
 from io import BytesIO
 from . import config as CFG
@@ -49,41 +49,41 @@ class NetworkError:
 
 class Handler:
     @beartype
-    def __init__(self, handler_type: str, target_url: Optional[str] = None, content_type: Optional[str] = None, method: HttpMethod = HttpMethod.GET):
+    def __init__(self, handler_type: str, startswith_url: Optional[str] = None, content_type: Optional[str] = None, method: HttpMethod = HttpMethod.GET):
         self.handler_type = handler_type
-        self.target_url = target_url
+        self.startswith_url = startswith_url
         self.content_type = content_type
         self.method = method
     
     @classmethod
     @beartype
-    def MAIN(cls, method: HttpMethod = HttpMethod.GET):
-        return cls("main", method=method)
+    def MAIN(cls):
+        return cls("main")
     
     @classmethod
     @beartype
-    def CAPTURE(cls, target_url: Optional[str] = None, type: Optional[str] = None, method: HttpMethod = HttpMethod.GET):
-        return cls("capture", target_url, type, method)
+    def ANY(cls, startswith_url: Optional[str] = None, method: HttpMethod = HttpMethod.GET):
+        return cls("any", startswith_url, "", method)
     
     @classmethod
     @beartype
-    def JSON(cls, target_url: Optional[str] = None, method: HttpMethod = HttpMethod.GET):
-        return cls("json", target_url, "json", method)
+    def JSON(cls, startswith_url: Optional[str] = None, method: HttpMethod = HttpMethod.GET):
+        return cls("json", startswith_url, "json", method)
     
     @classmethod
     @beartype
-    def JS(cls, target_url: Optional[str] = None, method: HttpMethod = HttpMethod.GET):
-        return cls("js", target_url, "js", method)
+    def JS(cls, startswith_url: Optional[str] = None, method: HttpMethod = HttpMethod.GET):
+        return cls("js", startswith_url, "js", method)
     
     @classmethod
     @beartype
-    def CSS(cls, target_url: Optional[str] = None, method: HttpMethod = HttpMethod.GET):
-        return cls("css", target_url, "css", method)
+    def CSS(cls, startswith_url: Optional[str] = None, method: HttpMethod = HttpMethod.GET):
+        return cls("css", startswith_url, "css", method)
     
     @classmethod
     @beartype
-    def IMAGE(cls, target_url: Optional[str] = None, method: HttpMethod = HttpMethod.GET):
-        return cls("image", target_url, "image", method)
+    def IMAGE(cls, startswith_url: Optional[str] = None, method: HttpMethod = HttpMethod.GET):
+        return cls("image", startswith_url, "image", method)
 
     @beartype
     def should_capture(self, resp, base_url: str) -> bool:
@@ -102,20 +102,155 @@ class Handler:
             return CFG.CONTENT_TYPE_JSON in ctype or CFG.CONTENT_TYPE_HTML in ctype or CFG.CONTENT_TYPE_IMAGE in ctype
         
         # Для всех остальных типов проверяем URL если указан
-        if self.target_url and not full_url.startswith(self.target_url):
+        if self.startswith_url and not full_url.startswith(self.startswith_url):
             return False
         
         # Проверяем тип контента на основе реального content-type из response
-        if self.handler_type == "json":
-            return CFG.CONTENT_TYPE_JSON in ctype
-        elif self.handler_type == "js":
-            return CFG.CONTENT_TYPE_JAVASCRIPT in ctype
-        elif self.handler_type == "css":
-            return CFG.CONTENT_TYPE_CSS in ctype
-        elif self.handler_type == "image":
-            return CFG.CONTENT_TYPE_IMAGE in ctype
-        elif self.handler_type == "capture":
-            # Любой первый запрос
-            return True
+        match self.handler_type:
+            case "json":
+                return CFG.CONTENT_TYPE_JSON in ctype
+            case "js":
+                return CFG.CONTENT_TYPE_JAVASCRIPT in ctype
+            case "css":
+                return CFG.CONTENT_TYPE_CSS in ctype
+            case "image":
+                return CFG.CONTENT_TYPE_IMAGE in ctype
+            case "any":
+                # Любой первый запрос
+                return True
+            case _:
+                return False
+
+
+class Request:
+    """Класс для представления HTTP запроса с возможностью модификации"""
+    
+    @beartype
+    def __init__(self, url: str, headers: Optional[Dict[str, str]] = None, params: Optional[Dict[str, str]] = None, 
+                 body: Optional[Union[dict, str]] = None, method: HttpMethod = HttpMethod.GET):
+        self._original_url = url
+        self._parsed_url = urllib.parse.urlparse(url)
         
-        return False
+        # Парсим существующие параметры из URL
+        self._parsed_params = dict(urllib.parse.parse_qsl(self._parsed_url.query))
+        
+        # Объединяем с переданными параметрами
+        if params:
+            self._parsed_params.update(params)
+        
+        # Инициализируем заголовки
+        self._headers = headers or {}
+        
+        # Инициализируем body и method
+        self._body = body
+        self._method = method
+    
+    @property
+    def url(self) -> str:
+        """Возвращает базовый URL без параметров"""
+        return urllib.parse.urlunparse((
+            self._parsed_url.scheme,
+            self._parsed_url.netloc,
+            self._parsed_url.path,
+            self._parsed_url.params,
+            '',  # query - пустая, так как параметры отдельно
+            self._parsed_url.fragment
+        ))
+    
+    @property
+    def headers(self) -> Dict[str, str]:
+        """Возвращает словарь заголовков"""
+        return self._headers.copy()
+    
+    @property
+    def params(self) -> Dict[str, str]:
+        """Возвращает словарь параметров запроса"""
+        return self._parsed_params.copy()
+    
+    @property
+    def body(self) -> Optional[Union[dict, str]]:
+        """Возвращает тело запроса"""
+        return self._body
+    
+    @property
+    def method(self) -> HttpMethod:
+        """Возвращает HTTP метод запроса"""
+        return self._method
+    
+    @property
+    def real_url(self) -> str:
+        """Собирает и возвращает финальный URL с параметрами"""
+        if not self._parsed_params:
+            return self.url
+        
+        query_string = urllib.parse.urlencode(self._parsed_params)
+        return urllib.parse.urlunparse((
+            self._parsed_url.scheme,
+            self._parsed_url.netloc,
+            self._parsed_url.path,
+            self._parsed_url.params,
+            query_string,
+            self._parsed_url.fragment
+        ))
+    
+    @beartype
+    def add_header(self, name: str, value: str) -> 'Request':
+        """Добавляет заголовок к запросу"""
+        self._headers[name] = value
+        return self
+    
+    @beartype
+    def add_headers(self, headers: Dict[str, str]) -> 'Request':
+        """Добавляет множественные заголовки к запросу"""
+        self._headers.update(headers)
+        return self
+    
+    @beartype
+    def add_param(self, name: str, value: str) -> 'Request':
+        """Добавляет параметр к запросу"""
+        self._parsed_params[name] = value
+        return self
+    
+    @beartype
+    def add_params(self, params: Dict[str, str]) -> 'Request':
+        """Добавляет множественные параметры к запросу"""
+        self._parsed_params.update(params)
+        return self
+    
+    @beartype
+    def remove_header(self, name: Union[str, list[str]]) -> 'Request':
+        """Удаляет заголовок(и) из запроса"""
+        if isinstance(name, str):
+            self._headers.pop(name, None)
+        else:
+            for header_name in name:
+                self._headers.pop(header_name, None)
+        return self
+    
+    @beartype
+    def remove_param(self, name: Union[str, list[str]]) -> 'Request':
+        """Удаляет параметр(ы) из запроса"""
+        if isinstance(name, str):
+            self._parsed_params.pop(name, None)
+        else:
+            for param_name in name:
+                self._parsed_params.pop(param_name, None)
+        return self
+    
+    @beartype
+    def set_body(self, body: Optional[Union[dict, str]]) -> 'Request':
+        """Устанавливает тело запроса"""
+        self._body = body
+        return self
+    
+    @beartype
+    def set_method(self, method: HttpMethod) -> 'Request':
+        """Устанавливает HTTP метод запроса"""
+        self._method = method
+        return self
+    
+    def __str__(self) -> str:
+        return f"Request(method={self._method.value}, url='{self.real_url}', headers={len(self._headers)}, params={len(self._parsed_params)}, body={'set' if self._body else 'none'})"
+    
+    def __repr__(self) -> str:
+        return f"Request(method={self._method.value}, url='{self._original_url}', headers={self._headers}, params={self._parsed_params}, body={self._body})"
