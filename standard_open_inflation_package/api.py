@@ -27,13 +27,30 @@ class Response:
     
     @beartype
     def __init__(self, status: int, request_headers: dict, response_headers: dict, response: Union[dict, list, str, BytesIO], 
-                 duration: float = 0.0, errorDetails: Optional[dict] = None):
+                 duration: float = 0.0):
         self.status = status
         self.request_headers = request_headers
         self.response_headers = response_headers
         self.response = response
         self.duration = duration  # Время выполнения запроса в секундах
-        self.errorDetails = errorDetails  # Детали ошибки если есть
+
+
+class NetworkError:
+    """Класс для представления сетевых ошибок"""
+    
+    @beartype
+    def __init__(self, name: str, message: str, details: dict, timestamp: str, duration: float = 0.0):
+        self.name = name
+        self.message = message
+        self.details = details
+        self.timestamp = timestamp
+        self.duration = duration
+    
+    def __str__(self):
+        return f"NetworkError({self.name}: {self.message})"
+    
+    def __repr__(self):
+        return f"NetworkError(name='{self.name}', message='{self.message}', timestamp='{self.timestamp}')"
 
 
 class Handler:
@@ -136,7 +153,6 @@ class BaseAPI:
 
         self._browser = None
         self._bcontext = None
-        self.cookies = {}  # Инициализируем cookies
 
         self._logger = logging.getLogger(self.__class__.__name__)
         handler = logging.StreamHandler()
@@ -144,6 +160,21 @@ class BaseAPI:
         handler.setFormatter(formatter)
         if not self._logger.hasHandlers():
             self._logger.addHandler(handler)
+    
+    async def get_cookies(self) -> dict:
+        """
+        Возвращает текущие куки в виде словаря.
+        """
+        if not self._bcontext:
+            return {}
+
+        raw = await self._bcontext.cookies()
+        new_cookies = {
+            urllib.parse.unquote(c["name"]): urllib.parse.unquote(c["value"])
+            for c in raw
+        }
+        return new_cookies
+
 
     # Properties для настроек
     @property
@@ -339,14 +370,6 @@ class Page:
             # Получаем сырые данные и content-type для единообразного парсинга
             raw_data = await resp.text()
             data = parse_response_data(raw_data, resp.headers.get("content-type", ""))
-
-            # Собираем куки
-            raw = await self.API._bcontext.cookies()
-            new_cookies = {
-                urllib.parse.unquote(c["name"]): urllib.parse.unquote(c["value"])
-                for c in raw
-            }
-            self.cookies = new_cookies
         finally:
             # Удаляем колбэки после завершения
             self.API._bcontext.remove_listener("request", _on_request)
@@ -366,7 +389,7 @@ class Page:
         )
 
     @beartype
-    async def inject_fetch(self, url: str, method: str = "GET", body: dict | None = None) -> Response:
+    async def inject_fetch(self, url: str, method: str = "GET", body: dict | None = None) -> Union[Response, NetworkError]:
         """
         Выполнение HTTP-запроса через JavaScript в браузере.
 
@@ -379,21 +402,6 @@ class Page:
             dict: Ответ API.
         """
         
-        # Получение accessToken из cookies
-        #access_token = await self._page.evaluate("""
-        #    () => {
-        #        const cookies = document.cookie.split('; ').reduce((acc, cookie) => {
-        #            const [key, value] = cookie.split('=');
-        #            acc[key] = value;
-        #            return acc;
-        #        }, {});
-        #        return JSON.parse(decodeURIComponent(cookies['session'])).accessToken;
-        #    }
-        #""")
-        #if not access_token:
-        #    raise ValueError("Access token not found")
-
-
         async def gen_headers() -> dict:
             """Генерация заголовков для запроса"""
             headers = {
@@ -449,14 +457,29 @@ class Page:
         
         duration = time.time() - start_time
         
+        # Проверяем, что вернул JavaScript - успешный ответ или ошибку
+        if not result.get('success', False):
+            # Возвращаем объект ошибки
+            error_info = result.get('error', {})
+            return NetworkError(
+                name=error_info.get('name', 'UnknownError'),
+                message=error_info.get('message', 'Unknown error occurred'),
+                details=error_info.get('details', {}),
+                timestamp=error_info.get('timestamp', ''),
+                duration=duration
+            )
+        
+        # Извлекаем данные успешного ответа
+        response_data = result['response']
+        
         # Парсим данные в зависимости от Content-Type
-        raw_data = result['data']
-        content_type = result['headers'].get('content-type', '')
+        raw_data = response_data['data']
+        content_type = response_data['headers'].get('content-type', '')
         parsed_data = parse_response_data(raw_data, content_type)
         
         # Обрабатываем Set-Cookie заголовки вручную
-        if 'set-cookie' in result['headers']:
-            set_cookie_header = result['headers']['set-cookie']
+        if 'set-cookie' in response_data['headers']:
+            set_cookie_header = response_data['headers']['set-cookie']
             self.API._logger.debug(f"Processing Set-Cookie header: {set_cookie_header}")
             
             # Устанавливаем куки через Playwright API
@@ -486,12 +509,11 @@ class Page:
         self.API._logger.info(f"Inject fetch request completed in {duration:.3f}s")
         
         return Response(
-            status=result['status'],
+            status=response_data['status'],
             request_headers=captured_request_headers,
-            response_headers=result['headers'],
+            response_headers=response_data['headers'],
             response=parsed_data,
-            duration=duration,
-            errorDetails=result.get('errorDetails')
+            duration=duration
         )
 
     async def close(self):

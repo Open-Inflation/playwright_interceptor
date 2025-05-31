@@ -15,41 +15,52 @@
             });
             
             return response.text().then(data => {
+                // Возвращаем объект успешного ответа
                 resolve({
-                    status: response.status,
-                    headers: response_headers,
-                    data: data
+                    success: true,
+                    response: {
+                        status: response.status,
+                        headers: response_headers,
+                        data: data
+                    }
                 });
             });
         })
         .catch(error => {
-            // Детальное логирование ошибки
-            const errorDetails = {
-                name: error.name,
-                message: error.message,
-                stack: error.stack,
-                code: error.code,
-                errno: error.errno,
-                syscall: error.syscall,
-                hostname: error.hostname,
-                type: Object.prototype.toString.call(error),
-                cause: error.cause
-            };
+            // Собираем только существующие свойства ошибки
+            const errorDetails = {};
             
-            console.log('=== DETAILED FETCH ERROR ===');
-            console.log('Error object:', error);
-            console.log('Error details:', errorDetails);
-            console.log('Error keys:', Object.keys(error));
-            console.log('Error constructor:', error.constructor.name);
-            console.log('=============================');
+            // Основные свойства Error объекта
+            if (error.name !== undefined) errorDetails.name = error.name;
+            if (error.message !== undefined) errorDetails.message = error.message;
+            if (error.stack !== undefined && error.stack !== '') errorDetails.stack = error.stack;
             
-            // Возвращаем ошибку как обычный response вместо исключения
+            // Node.js специфичные свойства (обычно отсутствуют в браузере)
+            if (error.code !== undefined) errorDetails.code = error.code;
+            if (error.errno !== undefined) errorDetails.errno = error.errno;
+            if (error.syscall !== undefined) errorDetails.syscall = error.syscall;
+            if (error.hostname !== undefined) errorDetails.hostname = error.hostname;
+            
+            // Дополнительные свойства
+            if (error.cause !== undefined) errorDetails.cause = error.cause;
+            if (error.fileName !== undefined) errorDetails.fileName = error.fileName;
+            if (error.lineNumber !== undefined) errorDetails.lineNumber = error.lineNumber;
+            if (error.columnNumber !== undefined) errorDetails.columnNumber = error.columnNumber;
+            
+            // Метаинформация
+            errorDetails.type = Object.prototype.toString.call(error);
+            errorDetails.constructor = error.constructor.name;
+            errorDetails.availableKeys = Object.keys(error);
+            
+            // Возвращаем объект ошибки отдельно от response
             resolve({
-                status: 0,  // специальный статус для network error
-                headers: {},
-                data: `${error.name}: ${error.message}`,
-                networkError: true,
-                errorDetails: errorDetails
+                success: false,
+                error: {
+                    name: error.name,
+                    message: error.message,
+                    details: errorDetails,
+                    timestamp: new Date().toISOString()
+                }
             });
         });
     });
