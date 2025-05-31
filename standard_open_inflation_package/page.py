@@ -67,7 +67,30 @@ class Page:
 
         def _on_response(resp):
             if handler.should_capture(resp, url) and not response_future.done():
-                response_future.set_result(resp)
+                # Получаем данные сразу в момент перехвата response
+                async def get_response_data():
+                    try:
+                        content_type = resp.headers.get("content-type", "").lower()
+                        raw_data = await resp.body()
+                        return {
+                            'status': resp.status,
+                            'headers': dict(resp.headers),
+                            'content_type': content_type,
+                            'raw_data': raw_data
+                        }
+                    except Exception as e:
+                        # Если не удалось получить body, возвращаем базовую информацию
+                        return {
+                            'status': resp.status,
+                            'headers': dict(resp.headers),
+                            'content_type': resp.headers.get("content-type", "").lower(),
+                            'raw_data': None,
+                            'error': str(e)
+                        }
+                
+                # Создаем задачу для получения данных и устанавливаем результат
+                task = asyncio.create_task(get_response_data())
+                response_future.set_result(task)
 
         self.API._bcontext.on("request", _on_request)
         self.API._bcontext.on("response", _on_response)
@@ -77,13 +100,27 @@ class Page:
 
             # Ожидание селектора если указан
             if wait_selector:
+                # Playwright требует timeout в миллисекундах
                 await self._page.wait_for_selector(wait_selector, timeout=self.API.timeout * CFG.MILLISECONDS_MULTIPLIER)
 
-            resp = await asyncio.wait_for(response_future, timeout=self.API.timeout)
-
-            # Получаем сырые данные и content-type для единообразного парсинга
-            raw_data = await resp.text()
-            data = parse_response_data(raw_data, resp.headers.get("content-type", ""))
+            # Получаем задачу с данными response
+            # asyncio.wait_for требует timeout в секундах
+            response_task = await asyncio.wait_for(response_future, timeout=self.API.timeout)
+            response_data = await response_task
+            
+            # Если возникла ошибка при получении body, логируем и поднимаем исключение
+            if response_data.get('error'):
+                error_msg = f"Failed to get response body: {response_data['error']}"
+                self.API._logger.error(error_msg)
+                raise RuntimeError(error_msg)
+            
+            # Используем полученные данные
+            raw_data = response_data['raw_data']
+            content_type = response_data['content_type']
+            status = response_data['status']
+            response_headers = response_data['headers']
+            
+            data = parse_response_data(raw_data, content_type)
         finally:
             # Удаляем колбэки после завершения
             self.API._bcontext.remove_listener("request", _on_request)
@@ -95,9 +132,9 @@ class Page:
         
         # Возвращаем объект Response с атрибутами status, request_headers, response_headers, response, duration
         return Response(
-            status=resp.status,
+            status=status,
             request_headers=captured_request_headers,
-            response_headers=dict(resp.headers),
+            response_headers=response_headers,
             response=data,
             duration=duration
         )

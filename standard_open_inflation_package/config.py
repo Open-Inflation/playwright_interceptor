@@ -61,7 +61,12 @@ IMAGE_EXTENSIONS = {
     'image/png': '.png',
     'image/gif': '.gif',
     'image/webp': '.webp',
-    'image/svg+xml': '.svg'
+    'image/svg+xml': '.svg',
+    'image/x-icon': '.ico',
+    'image/vnd.microsoft.icon': '.ico',
+    'image/bmp': '.bmp',
+    'image/x-ms-bmp': '.bmp',
+    'image/tiff': '.tiff',
 }
 
 # Default file extensions
