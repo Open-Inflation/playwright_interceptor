@@ -5,7 +5,7 @@ import json
 from beartype.typing import Dict, Union
 from beartype import beartype
 from io import BytesIO
-from . import patterns as Patterns
+from . import config as CFG
 
 @beartype
 def get_env_proxy() -> Union[str, None]:
@@ -32,22 +32,22 @@ def parse_proxy(proxy_str: Union[str, None], trust_env: bool, logger: logging.Lo
             logger.info(f"Proxy string found in environment variables")
 
     # Example: user:pass@host:port or just host:port
-    match = re.match(Patterns.PROXY, proxy_str)
+    match = re.match(CFG.PROXY, proxy_str)
     
     proxy_dict = {}
     if not match:
         logger.warning(f"Proxy string did not match expected pattern, using basic formating")
         proxy_dict['server'] = proxy_str
         
-        if not proxy_str.startswith('http://') and not proxy_str.startswith('https://'):
+        if not proxy_str.startswith(CFG.PROXY_HTTP_SCHEMES[0]) and not proxy_str.startswith(CFG.PROXY_HTTP_SCHEMES[1]):
             logger.warning("Proxy string missing protocol, prepending 'http://'")
-            proxy_dict['server'] = f"http://{proxy_str}"
+            proxy_dict['server'] = f"{CFG.DEFAULT_HTTP_SCHEME}{proxy_str}"
         
         logger.info(f"Proxy parsed as basic")
         return proxy_dict
     else:
         match_dict = match.groupdict()
-        proxy_dict['server'] = f"{match_dict['scheme'] or 'http://'}{match_dict['host']}"
+        proxy_dict['server'] = f"{match_dict['scheme'] or CFG.DEFAULT_HTTP_SCHEME}{match_dict['host']}"
         if match_dict['port']:
             proxy_dict['server'] += f":{match_dict['port']}"
         
@@ -74,28 +74,20 @@ def parse_response_data(data: str, content_type: str) -> Union[dict, list, str, 
     """
     content_type = content_type.lower()
     
-    if "application/json" in content_type:
+    if CFG.CONTENT_TYPE_JSON in content_type:
         try:
             return json.loads(data)
         except json.JSONDecodeError:
             # Если не удалось распарсить как JSON, возвращаем как есть
             return data
-    elif "image/" in content_type:
+    elif CFG.CONTENT_TYPE_IMAGE in content_type:
         # Для изображений создаем BytesIO объект
         # Примечание: для inject_fetch бинарные данные могут быть не корректными
         parsed_data = BytesIO(data.encode('utf-8'))
         
         # Определяем расширение по content-type
-        ext_map = {
-            'image/jpeg': '.jpg',
-            'image/jpg': '.jpg', 
-            'image/png': '.png',
-            'image/gif': '.gif',
-            'image/webp': '.webp',
-            'image/svg+xml': '.svg'
-        }
-        ext = ext_map.get(content_type.split(';')[0], '.img')
-        parsed_data.name = f"image{ext}"
+        ext = CFG.IMAGE_EXTENSIONS.get(content_type.split(';')[0], CFG.DEFAULT_IMAGE_EXTENSION)
+        parsed_data.name = f"{CFG.DEFAULT_IMAGE_NAME}{ext}"
         
         return parsed_data
     else:

@@ -10,6 +10,7 @@ from enum import Enum
 from io import BytesIO
 import time
 from .tools import parse_proxy, parse_response_data
+from . import config as CFG
 
 
 class HttpMethod(Enum):
@@ -105,7 +106,7 @@ class Handler:
             # Для MAIN проверяем основную страницу
             if not full_url.startswith(base_url):
                 return False
-            return "application/json" in ctype or "text/html" in ctype or "image/" in ctype
+            return CFG.CONTENT_TYPE_JSON in ctype or CFG.CONTENT_TYPE_HTML in ctype or CFG.CONTENT_TYPE_IMAGE in ctype
         
         # Для всех остальных типов проверяем URL если указан
         if self.target_url and not full_url.startswith(self.target_url):
@@ -113,13 +114,13 @@ class Handler:
         
         # Проверяем тип контента на основе реального content-type из response
         if self.handler_type == "json":
-            return "application/json" in ctype
+            return CFG.CONTENT_TYPE_JSON in ctype
         elif self.handler_type == "js":
-            return 'javascript' in ctype
+            return CFG.CONTENT_TYPE_JAVASCRIPT in ctype
         elif self.handler_type == "css":
-            return 'text/css' in ctype
+            return CFG.CONTENT_TYPE_CSS in ctype
         elif self.handler_type == "image":
-            return "image/" in ctype
+            return CFG.CONTENT_TYPE_IMAGE in ctype
         elif self.handler_type == "capture":
             # Любой первый запрос
             return True
@@ -221,9 +222,9 @@ class BaseAPI:
     @beartype
     def timeout(self, value: float) -> None:
         if value <= 0:
-            raise ValueError("Timeout must be positive")
-        if value > 3600:  # 1 час максимум
-            raise ValueError("Timeout too large (max 3600 seconds)")
+            raise ValueError(CFG.ERROR_TIMEOUT_POSITIVE)
+        if value > CFG.MAX_TIMEOUT_SECONDS:
+            raise ValueError(CFG.ERROR_TIMEOUT_TOO_LARGE)
         self._timeout = value
     
     @property
@@ -261,9 +262,9 @@ class BaseAPI:
         if not self._bcontext:
             await self.new_session(include_browser=True)
         
-        self._logger.info("Creating a new page in the browser context...")
+        self._logger.info(CFG.LOG_NEW_PAGE_CREATING)
         page = await self._bcontext.new_page()
-        self._logger.info("New page created successfully.")
+        self._logger.info(CFG.LOG_NEW_PAGE_CREATED)
         
         return Page(self, page)
 
@@ -273,18 +274,18 @@ class BaseAPI:
 
         if include_browser:
             prox = parse_proxy(self.proxy, self.trust_env, self._logger)
-            self._logger.info(f"Opening new browser connection with proxy: {'SYSTEM_PROXY' if prox and not self.proxy else prox}")
+            self._logger.info(f"{CFG.LOG_OPENING_BROWSER}: {CFG.LOG_SYSTEM_PROXY if prox and not self.proxy else prox}")
             self._browser = await AsyncCamoufox(headless=not self.debug, proxy=prox, geoip=True).__aenter__()
             self._bcontext = await self._browser.new_context()
-            self._logger.info(f"A new browser context has been opened.")
+            self._logger.info(CFG.LOG_BROWSER_CONTEXT_OPENED)
             if self.start_func:
-                self._logger.info(f"Executing start function: {self.start_func.__name__}")
+                self._logger.info(f"{CFG.LOG_START_FUNC_EXECUTING}: {self.start_func.__name__}")
                 if not asyncio.iscoroutinefunction(self.start_func):
                     self.start_func(self)
                 else:
                     await self.start_func(self)
-                self._logger.info(f"Start function {self.start_func.__name__} executed successfully.")
-            self._logger.info("New session created successfully.")
+                self._logger.info(f"{CFG.LOG_START_FUNC_EXECUTING} {self.start_func.__name__} {CFG.LOG_START_FUNC_EXECUTED}")
+            self._logger.info(CFG.LOG_NEW_SESSION_CREATED)
 
     @beartype
     async def close(
@@ -300,10 +301,10 @@ class BaseAPI:
             to_close.append("bcontext")
             to_close.append("browser")
 
-        self._logger.info(f"Preparing to close: {to_close if to_close else 'nothing'}")
+        self._logger.info(f"{CFG.LOG_PREPARING_TO_CLOSE}: {to_close if to_close else 'nothing'}")
 
         if not to_close:
-            self._logger.warning("No connections to close")
+            self._logger.warning(CFG.LOG_NO_CONNECTIONS)
             return
 
         checks = {
@@ -314,21 +315,21 @@ class BaseAPI:
         for name in to_close:
             attr = getattr(self, f"_{name}", None)
             if checks[name](attr):
-                self._logger.info(f"Closing {name} connection...")
+                self._logger.info(f"{CFG.LOG_CLOSING_CONNECTION} {name} connection...")
                 try:
                     if name == "browser":
                         await attr.__aexit__(None, None, None)
                     elif name in ["bcontext"]:
                         await attr.close()
                     else:
-                        raise ValueError(f"Unknown connection type: {name}")
+                        raise ValueError(f"{CFG.ERROR_UNKNOWN_CONNECTION_TYPE}: {name}")
                     
                     setattr(self, f"_{name}", None)
-                    self._logger.info(f"The {name} connection was closed")
+                    self._logger.info(f"The {name} {CFG.LOG_CONNECTION_CLOSED}")
                 except Exception as e:
-                    self._logger.error(f"Error closing {name}: {e}")
+                    self._logger.error(f"{CFG.LOG_ERROR_CLOSING} {name}: {e}")
             else:
-                self._logger.warning(f"The {name} connection was not open")
+                self._logger.warning(f"The {name} {CFG.LOG_CONNECTION_NOT_OPEN}")
 
 
 class Page:
@@ -363,7 +364,7 @@ class Page:
 
             # Ожидание селектора если указан
             if wait_selector:
-                await self._page.wait_for_selector(wait_selector, timeout=self.API.timeout * 1000)
+                await self._page.wait_for_selector(wait_selector, timeout=self.API.timeout * CFG.MILLISECONDS_MULTIPLIER)
 
             resp = await asyncio.wait_for(response_future, timeout=self.API.timeout)
 
@@ -377,7 +378,7 @@ class Page:
         
         # Вычисляем метрики производительности
         duration = time.time() - start_time
-        self.API._logger.info(f"Request completed in {duration:.3f}s")
+        self.API._logger.info(f"{CFG.LOG_REQUEST_COMPLETED} {duration:.3f}s")
         
         # Возвращаем объект Response с атрибутами status, request_headers, response_headers, response, duration
         return Response(
@@ -405,7 +406,7 @@ class Page:
         async def gen_headers() -> dict:
             """Генерация заголовков для запроса"""
             headers = {
-                "Content-Type": "application/json"
+                "Content-Type": CFG.DEFAULT_CONTENT_TYPE
             }
             if self.API.inject_headers_gen:
                 if not asyncio.iscoroutinefunction(self.API.inject_headers_gen):
@@ -416,7 +417,7 @@ class Page:
                 if isinstance(custom_headers, dict):
                     headers.update(custom_headers)
                 else:
-                    self.API._logger.warning(f"Custom headers generator returned non-dict: {custom_headers}")
+                    self.API._logger.warning(f"{CFG.LOG_CUSTOM_HEADERS_WARNING}: {custom_headers}")
             return headers
 
         start_time = time.time()
@@ -435,14 +436,14 @@ class Page:
 
         try:
             # JavaScript-код для выполнения запроса с возвратом статуса и заголовков
-            script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "inject_fetch.js")
+            script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), CFG.INJECT_FETCH_JS_FILE)
 
             def load_inject_script():
                 try:
                     with open(script_path, "r") as file:
                         return file.read()
                 except FileNotFoundError:
-                    raise FileNotFoundError(f"JavaScript file not found at: {script_path}")
+                    raise FileNotFoundError(f"{CFG.ERROR_JS_FILE_NOT_FOUND}: {script_path}")
 
             # Load the script once
             script = load_inject_script()
@@ -462,8 +463,8 @@ class Page:
             # Возвращаем объект ошибки
             error_info = result.get('error', {})
             return NetworkError(
-                name=error_info.get('name', 'UnknownError'),
-                message=error_info.get('message', 'Unknown error occurred'),
+                name=error_info.get('name', CFG.ERROR_UNKNOWN),
+                message=error_info.get('message', CFG.ERROR_MESSAGE_UNKNOWN),
                 details=error_info.get('details', {}),
                 timestamp=error_info.get('timestamp', ''),
                 duration=duration
@@ -480,7 +481,7 @@ class Page:
         # Обрабатываем Set-Cookie заголовки вручную
         if 'set-cookie' in response_data['headers']:
             set_cookie_header = response_data['headers']['set-cookie']
-            self.API._logger.debug(f"Processing Set-Cookie header: {set_cookie_header}")
+            self.API._logger.debug(f"{CFG.LOG_PROCESSING_COOKIE}: {set_cookie_header}")
             
             # Устанавливаем куки через Playwright API
             try:
@@ -500,13 +501,13 @@ class Page:
                                 'name': name.strip(),
                                 'value': value.strip(),
                                 'domain': domain,
-                                'path': '/'
+                                'path': CFG.DEFAULT_COOKIE_PATH
                             }])
-                            self.API._logger.debug(f"Cookie set: {name.strip()}={value.strip()}")
+                            self.API._logger.debug(f"{CFG.LOG_COOKIE_SET}: {name.strip()}={value.strip()}")
             except Exception as e:
-                self.API._logger.warning(f"Failed to process Set-Cookie header: {e}")
+                self.API._logger.warning(f"{CFG.LOG_COOKIE_PROCESSING_FAILED}: {e}")
         
-        self.API._logger.info(f"Inject fetch request completed in {duration:.3f}s")
+        self.API._logger.info(f"{CFG.LOG_INJECT_FETCH_COMPLETED} {duration:.3f}s")
         
         return Response(
             status=response_data['status'],
@@ -521,6 +522,6 @@ class Page:
         if self._page:
             await self._page.close()
             self._page = None
-            self.API._logger.info("Page closed successfully")
+            self.API._logger.info(CFG.LOG_PAGE_CLOSED)
         else:
-            self.API._logger.info("No page to close")
+            self.API._logger.info(CFG.LOG_NO_PAGE_TO_CLOSE)
