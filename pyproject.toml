@@ -38,7 +38,7 @@ dependencies = [
 Homepage = "https://github.com/Open-Inflation/standard_open_inflation_package"
 
 [project.scripts]
-soip-generate-docs-index = "standard_open_inflation_package.docs_generator:main"
+soip-generate-docs-index = "standard_open_inflation_package.utils.docs_generator:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

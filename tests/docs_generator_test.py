@@ -1,7 +1,7 @@
 import pytest
 import os
 import tempfile
-from standard_open_inflation_package.docs_generator import generate_docs_index
+from standard_open_inflation_package.utils.docs_generator import generate_docs_index
 
 
 def test_generate_docs_index_with_html_files():
