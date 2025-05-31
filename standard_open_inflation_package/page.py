@@ -6,7 +6,7 @@ from beartype import beartype
 from beartype.typing import Union, Optional
 from .tools import parse_response_data
 from . import config as CFG
-from .models import Response, NetworkError, Handler, Request
+from .models import Response, NetworkError, Handler, Request, HandlerSearchFailedError
 import copy
 from urllib.parse import urlparse
 
@@ -48,7 +48,7 @@ class Page:
         return request_obj
 
     @beartype
-    async def direct_fetch(self, url: str, handler: Handler = Handler.MAIN(), wait_selector: Optional[str] = None) -> Response:
+    async def direct_fetch(self, url: str, handler: Handler = Handler.MAIN(), wait_selector: Optional[str] = None) -> Union[Response, HandlerSearchFailedError]:
         if not self._page:
             raise RuntimeError(CFG.LOG_PAGE_NOT_AVAILABLE)
             
@@ -58,6 +58,7 @@ class Page:
         loop = asyncio.get_running_loop()
         response_future = loop.create_future()
         captured_request_headers = {}
+        rejected_responses = []  # Список отклоненных response
 
         def _on_request(req):
             # Перехватываем заголовки запроса для нужного URL
@@ -66,31 +67,45 @@ class Page:
                 captured_request_headers = dict(req.headers)
 
         def _on_response(resp):
-            if handler.should_capture(resp, url) and not response_future.done():
-                # Получаем данные сразу в момент перехвата response
-                async def get_response_data():
-                    try:
-                        content_type = resp.headers.get("content-type", "").lower()
-                        raw_data = await resp.body()
-                        return {
-                            'status': resp.status,
-                            'headers': dict(resp.headers),
-                            'content_type': content_type,
-                            'raw_data': raw_data
-                        }
-                    except Exception as e:
-                        # Если не удалось получить body, возвращаем базовую информацию
-                        return {
-                            'status': resp.status,
-                            'headers': dict(resp.headers),
-                            'content_type': resp.headers.get("content-type", "").lower(),
-                            'raw_data': None,
-                            'error': str(e)
-                        }
+            # Получаем данные сразу в момент перехвата response
+            async def get_response_data():
+                data = {
+                    'status': resp.status,
+                    'headers': dict(resp.headers),
+                    'content_type': resp.headers.get("content-type", "").lower(),
+                    'raw_data': None,
+                    'url': resp.url
+                }
+
+                try:
+                    raw_data = await resp.body()
+                    data['raw_data'] = raw_data
+                except Exception as e:
+                    # Если не удалось получить body, возвращаем базовую информацию
+                    data['error'] = str(e)
                 
+                return data
+
+            if handler.should_capture(resp, url) and not response_future.done():
                 # Создаем задачу для получения данных и устанавливаем результат
                 task = asyncio.create_task(get_response_data())
                 response_future.set_result(task)
+            else:
+                # Добавляем задачу получения данных отклоненного response
+                data = None
+                if self.API.debug:
+                    # Создаем задачу для получения данных отклоненного response
+                    # но не ждем её выполнения, просто логируем что response был отклонен
+                    asyncio.create_task(get_response_data())
+
+                rejected_responses.append(Response(
+                    status=resp.status,
+                    request_headers=dict(resp.request.headers) if resp.request else {},
+                    response_headers=dict(resp.headers),
+                    response=data,
+                    duration=time.time() - start_time,
+                    url=resp.url
+                ))
 
         self.API._bcontext.on("request", _on_request)
         self.API._bcontext.on("response", _on_response)
@@ -103,41 +118,58 @@ class Page:
                 # Playwright требует timeout в миллисекундах
                 await self._page.wait_for_selector(wait_selector, timeout=self.API.timeout * CFG.MILLISECONDS_MULTIPLIER)
 
-            # Получаем задачу с данными response
-            # asyncio.wait_for требует timeout в секундах
-            response_task = await asyncio.wait_for(response_future, timeout=self.API.timeout)
-            response_data = await response_task
-            
-            # Если возникла ошибка при получении body, логируем и поднимаем исключение
-            if response_data.get('error'):
-                error_msg = f"Failed to get response body: {response_data['error']}"
-                self.API._logger.error(error_msg)
-                raise RuntimeError(error_msg)
-            
-            # Используем полученные данные
-            raw_data = response_data['raw_data']
-            content_type = response_data['content_type']
-            status = response_data['status']
-            response_headers = response_data['headers']
-            
-            data = parse_response_data(raw_data, content_type)
+            try:
+                # Получаем задачу с данными response
+                # asyncio.wait_for требует timeout в секундах
+                response_task = await asyncio.wait_for(response_future, timeout=self.API.timeout)
+                response_data = await response_task
+                
+                # Если возникла ошибка при получении body, логируем и поднимаем исключение
+                if response_data.get('error'):
+                    error_msg = f"Failed to get response body: {response_data['error']}"
+                    self.API._logger.error(error_msg)
+                    raise RuntimeError(error_msg)
+                
+                # Используем полученные данные
+                raw_data = response_data['raw_data']
+                content_type = response_data['content_type']
+                status = response_data['status']
+                response_headers = response_data['headers']
+                response_url = response_data['url']
+                
+                data = parse_response_data(raw_data, content_type)
+                
+                # Вычисляем метрики производительности
+                duration = time.time() - start_time
+                self.API._logger.info(f"{CFG.LOG_REQUEST_COMPLETED} {duration:.3f}s")
+                
+                # Возвращаем объект Response с атрибутами status, request_headers, response_headers, response, duration, url
+                return Response(
+                    status=status,
+                    request_headers=captured_request_headers,
+                    response_headers=response_headers,
+                    response=data,
+                    duration=duration,
+                    url=response_url
+                )
+                
+            except asyncio.TimeoutError:
+                # Если timeout - собираем все отклоненные response и возвращаем HandlerNotFoundError
+                duration = time.time() - start_time
+                
+                self.API._logger.warning(f"Handler {handler.handler_type} not found suitable response for {url}. Rejected {len(rejected_responses)} responses. Duration: {duration:.3f}s")
+                
+                return HandlerSearchFailedError(
+                    handler=handler,
+                    url=url,
+                    rejected_responses=rejected_responses,
+                    duration=duration
+                )
+                
         finally:
             # Удаляем колбэки после завершения
             self.API._bcontext.remove_listener("request", _on_request)
             self.API._bcontext.remove_listener("response", _on_response)
-        
-        # Вычисляем метрики производительности
-        duration = time.time() - start_time
-        self.API._logger.info(f"{CFG.LOG_REQUEST_COMPLETED} {duration:.3f}s")
-        
-        # Возвращаем объект Response с атрибутами status, request_headers, response_headers, response, duration
-        return Response(
-            status=status,
-            request_headers=captured_request_headers,
-            response_headers=response_headers,
-            response=data,
-            duration=duration
-        )
 
     @beartype
     async def inject_fetch(self, request: Union[Request, str]) -> Union[Response, NetworkError]:
@@ -251,7 +283,8 @@ class Page:
             request_headers=captured_request_headers,
             response_headers=response_data['headers'],
             response=parsed_data,
-            duration=duration
+            duration=duration,
+            url=final_request.real_url
         )
 
     async def close(self):

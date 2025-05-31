@@ -6,7 +6,7 @@ from beartype import beartype
 from beartype.typing import Union, Optional, Callable
 from .tools import parse_proxy
 from . import config as CFG
-from .models import Response, Handler, Request
+from .models import Response, Handler, Request, HandlerSearchFailedError
 
 
 class BaseAPI:
@@ -16,12 +16,12 @@ class BaseAPI:
 
     @beartype
     def __init__(self,
-                 debug:                 bool               = False,
-                 proxy:                 str | None         = None,
-                 autoclose_browser:     bool               = False,
-                 trust_env:            bool               = False,
-                 timeout:              float              = 10.0,
-                 start_func:           Callable | None = None,
+                 debug:                 bool            = False,
+                 proxy:                 str | None      = None,
+                 autoclose_browser:     bool            = False,
+                 trust_env:             bool            = False,
+                 timeout:               float           = 10.0,
+                 start_func:            Callable | None = None,
                  request_modifier_func: Callable | None = None
         ) -> None:
         # Используем property для установки настроек
@@ -128,7 +128,7 @@ class BaseAPI:
     
 
     @beartype
-    async def new_direct_fetch(self, url: str, handler: Handler = Handler.MAIN(), wait_selector: Optional[str] = None) -> Response:  
+    async def new_direct_fetch(self, url: str, handler: Handler = Handler.MAIN(), wait_selector: Optional[str] = None) -> Union[Response, HandlerSearchFailedError]:  
         page = await self.new_page()
         response = await page.direct_fetch(url, handler, wait_selector)
         await page.close()

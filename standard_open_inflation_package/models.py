@@ -1,6 +1,6 @@
 import urllib.parse
 from beartype import beartype
-from beartype.typing import Union, Optional, Dict, Any
+from beartype.typing import Union, Optional, Dict, Any, List
 from enum import Enum
 from io import BytesIO
 from . import config as CFG
@@ -20,13 +20,34 @@ class Response:
     """Класс для представления ответа от API"""
     
     @beartype
-    def __init__(self, status: int, request_headers: dict, response_headers: dict, response: Union[dict, list, str, BytesIO], 
-                 duration: float = 0.0):
+    def __init__(self, status: int, request_headers: dict, response_headers: dict, response: Union[dict, list, str, BytesIO, None] = None, 
+                 duration: float = 0.0, url: Optional[str] = None):
         self.status = status
         self.request_headers = request_headers
         self.response_headers = response_headers
         self.response = response
         self.duration = duration  # Время выполнения запроса в секундах
+        self.url = url  # URL эндпоинта, с которого пришёл ответ
+    
+    def __str__(self) -> str:
+        content_type = self.response_headers.get('content-type', 'unknown')
+        response_type = type(self.response).__name__
+        response_size = "unknown"
+        
+        # Определяем размер ответа
+        if isinstance(self.response, (dict, list)):
+            response_size = f"{len(str(self.response))} chars"
+        elif isinstance(self.response, str):
+            response_size = f"{len(self.response)} chars"
+        elif isinstance(self.response, BytesIO):
+            response_size = f"{len(self.response.getvalue())} bytes"
+        
+        url_info = f", url='{self.url}'" if self.url else ""
+        return f"Response(status={self.status}, type={response_type}, content_type='{content_type}', size={response_size}, duration={self.duration:.3f}s{url_info})"
+    
+    def __repr__(self) -> str:
+        url_info = f", url='{self.url}'" if self.url else ""
+        return f"Response(status={self.status}, headers={len(self.response_headers)}, response_type={type(self.response).__name__}, duration={self.duration}{url_info})"
 
 
 class NetworkError:
@@ -254,3 +275,20 @@ class Request:
     
     def __repr__(self) -> str:
         return f"Request(method={self._method.value}, url='{self._original_url}', headers={self._headers}, params={self._parsed_params}, body={self._body})"
+
+
+class HandlerSearchFailedError:
+    """Класс для представления ошибки, когда handler не нашел подходящего response"""
+    
+    @beartype
+    def __init__(self, handler: 'Handler', url: str, rejected_responses: List['Response'], duration: float = 0.0):
+        self.handler = handler
+        self.url = url
+        self.rejected_responses = rejected_responses
+        self.duration = duration
+    
+    def __str__(self):
+        return f"HandlerSearchFailedError: Handler {self.handler.handler_type} not found suitable response for {self.url}. Rejected {len(self.rejected_responses)} responses."
+    
+    def __repr__(self):
+        return f"HandlerSearchFailedError(handler={self.handler.handler_type}, url='{self.url}', rejected_count={len(self.rejected_responses)})"
