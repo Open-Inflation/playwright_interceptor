@@ -8,6 +8,7 @@ Standard Open Inflation Package
 
 # Импорт утилит
 from .tools import get_env_proxy, parse_proxy
+from .parsers import parse_content_type, parse_response_data
 
 # Импорт основных классов из модульной структуры
 from .models import HttpMethod, Response, NetworkError, Handler, Request, HandlerSearchFailedError
@@ -22,6 +23,8 @@ __all__ = [
     # Утилиты
     'get_env_proxy', 
     'parse_proxy',
+    'parse_content_type',
+    'parse_response_data',
     
     # Основные классы
     'BaseAPI',

@@ -1,6 +1,7 @@
 import urllib.parse
 from beartype import beartype
 from beartype.typing import Union, Optional, Dict, Any, List
+from .parsers import parse_content_type
 from enum import Enum
 from io import BytesIO
 import urllib.parse
@@ -15,7 +16,7 @@ class HttpMethod(Enum):
     PATCH = "PATCH"
     HEAD = "HEAD"
     OPTIONS = "OPTIONS"
-    ANY = "ANY"  # Специальный метод для захвата любых запросов
+    ANY = None  # Специальный метод для захвата любых запросов
 
 
 class Response:
@@ -32,7 +33,8 @@ class Response:
         self.url = url  # URL эндпоинта, с которого пришёл ответ
     
     def __str__(self) -> str:
-        content_type = self.response_headers.get('content-type', 'unknown')
+        type_data = parse_content_type(self.response_headers.get('content-type', 'unknown'))
+        content_type = type_data["content_type"]
         response_type = type(self.response).__name__
         response_size = "unknown"
         
@@ -147,7 +149,8 @@ class Handler:
     def should_capture(self, resp, base_url: str) -> bool:
         """Определяет, должен ли handler захватить данный response"""
         full_url = urllib.parse.unquote(resp.url)
-        ctype = resp.headers.get("content-type", "").lower()
+        type_data = parse_content_type(resp.headers.get("content-type", ""))
+        ctype = type_data["content_type"]
         
         # Проверяем метод запроса
         if self.method != HttpMethod.ANY and resp.request.method != self.method.value:
@@ -156,7 +159,10 @@ class Handler:
         if self.handler_type == "main":
             # Для MAIN проверяем основную страницу
             return full_url == base_url
-        
+        # Если мы не слушаем main, то не реагируем
+        elif base_url == full_url:
+            return False
+
         # Для всех остальных типов проверяем URL если указан
         if self.startswith_url and not full_url.startswith(self.startswith_url):
             return False

@@ -1,10 +1,8 @@
 import os
 import re
 import logging
-import json
 from beartype.typing import Dict, Union
 from beartype import beartype
-from io import BytesIO
 from . import config as CFG
 
 @beartype
@@ -60,51 +58,4 @@ def parse_proxy(proxy_str: Union[str, None], trust_env: bool, logger: logging.Lo
         logger.info(f"Proxy parsed as regex")
         return proxy_dict
 
-@beartype
-def parse_response_data(data: Union[str, bytes], content_type: str) -> Union[dict, list, str, BytesIO]:
-    """
-    Парсит данные ответа на основе content-type.
-    
-    Args:
-        data: Сырые данные как строка или байты
-        content_type: Content-Type из заголовков ответа
-    
-    Returns:
-        Распарсенные данные соответствующего типа
-    """
-    content_type = content_type.lower()
-    
-    if CFG.CONTENT_TYPE_JSON in content_type:
-        try:
-            # Если data это bytes, декодируем в строку
-            if isinstance(data, bytes):
-                data_str = data.decode('utf-8')
-            else:
-                data_str = data
-            return json.loads(data_str)
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            # Если не удалось распарсить как JSON, возвращаем как есть
-            return data
-    elif CFG.CONTENT_TYPE_IMAGE in content_type:
-        # Для изображений создаем BytesIO объект
-        if isinstance(data, bytes):
-            parsed_data = BytesIO(data)
-        else:
-            # Если данные пришли как строка (не должно происходить для изображений, но на всякий случай)
-            parsed_data = BytesIO(data.encode('utf-8'))
-        
-        # Определяем расширение по content-type
-        ext = CFG.IMAGE_EXTENSIONS.get(content_type.split(';')[0], CFG.DEFAULT_IMAGE_EXTENSION)
-        parsed_data.name = f"{CFG.DEFAULT_IMAGE_NAME}{ext}"
-        
-        return parsed_data
-    else:
-        # Для всех остальных типов возвращаем как текст
-        if isinstance(data, bytes):
-            try:
-                return data.decode('utf-8')
-            except UnicodeDecodeError:
-                # Если не удается декодировать как UTF-8, создаем BytesIO
-                return BytesIO(data)
-        else:
-            return data
+

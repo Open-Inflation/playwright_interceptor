@@ -4,7 +4,7 @@ import time
 import json
 from beartype import beartype
 from beartype.typing import Union, Optional
-from .tools import parse_response_data
+from .parsers import parse_response_data
 from . import config as CFG
 from .models import Response, NetworkError, Handler, Request, HandlerSearchFailedError, HttpMethod
 import copy
@@ -95,7 +95,8 @@ class Page:
             else:
                 # Добавляем задачу получения данных отклоненного response
                 data = None
-                if self.API.debug:
+                if self.API.debug or handler.handler_type == 'none':
+                    # Если это отладочный режим или Handler.NONE(), получаем данные
                     # Создаем задачу для получения данных отклоненного response
                     # но не ждем её выполнения, просто логируем что response был отклонен
                     asyncio.create_task(get_response_data())
