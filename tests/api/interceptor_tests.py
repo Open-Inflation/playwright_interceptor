@@ -1,7 +1,8 @@
 import pytest
-from standard_open_inflation_package import BaseAPI, Handler, Response, NetworkError, Request, HandlerSearchFailedError, HttpMethod, Page, parse_content_type
+from standard_open_inflation_package import BaseAPI, Handler, Response
+from standard_open_inflation_package.exceptions import HandlerSearchFailedError
+from standard_open_inflation_package.tools import parse_content_type
 from io import BytesIO
-from asyncio.exceptions import TimeoutError
 
 
 # Тестовые страницы, которые загружают различные типы ресурсов как субфайлы
@@ -13,7 +14,7 @@ CHECK_JS_PAGE = "https://ya.ru/"  # Страница с JavaScript файлам�
 CHECK_VIDEO_PAGE = "https://github.com/home"  # Страница с видео
 CHECK_AUDIO_PAGE = "https://developer.mozilla.org/ru/docs/Web/HTML/Reference/Elements/audio"  # Страница с аудио
 CHECK_FONT_PAGE = "https://fonts.google.com/"  # Страница с веб-шрифтами
-CHECK_TEXT_PAGE = "https://google.com/"  # Прямая ссылка на текстовый файл
+CHECK_TEXT_PAGE = "https://chromedevtools.github.io/devtools-protocol/"  # Страница с текстовым файлом
 
 TIMEOUT = 15.0  # Оптимальный таймаут для параллельного выполнения
 

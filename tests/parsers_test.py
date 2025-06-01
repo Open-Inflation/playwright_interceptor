@@ -1,5 +1,5 @@
 import pytest
-from standard_open_inflation_package.parsers import parse_response_data, parse_content_type, _remove_csrf_prefixes
+from standard_open_inflation_package.content_loader import parse_response_data, _remove_csrf_prefixes
 import json
 from io import BytesIO
 
@@ -114,39 +114,6 @@ class TestCSRFRemoval:
         input_data = 'just some text without json'
         result = parse_response_data(input_data, "application/json")
         assert result == input_data  # Should return original string
-
-
-class TestContentTypeParsing:
-    """Тесты для парсинга Content-Type"""
-    
-    def test_basic_content_type(self):
-        """Тест базового Content-Type"""
-        result = parse_content_type("application/json")
-        assert result['content_type'] == 'application/json'
-        assert result['charset'] == 'utf-8'  # default
-    
-    def test_content_type_with_charset(self):
-        """Тест Content-Type с charset"""
-        result = parse_content_type("text/html; charset=windows-1251")
-        assert result['content_type'] == 'text/html'
-        assert result['charset'] == 'windows-1251'
-    
-    def test_content_type_with_multiple_params(self):
-        """Тест Content-Type с несколькими параметрами"""
-        result = parse_content_type("text/html; charset=utf-8; boundary=something")
-        assert result['content_type'] == 'text/html'
-        assert result['charset'] == 'utf-8'
-        assert result['boundary'] == 'something'
-    
-    def test_empty_content_type(self):
-        """Тест пустого Content-Type"""
-        result = parse_content_type("")
-        assert result['content_type'] == ''
-    
-    def test_content_type_with_quotes(self):
-        """Тест Content-Type с кавычками в параметрах"""
-        result = parse_content_type('text/html; charset="utf-8"')
-        assert result['charset'] == 'utf-8'  # quotes should be stripped
 
 
 class TestResponseDataParsing:

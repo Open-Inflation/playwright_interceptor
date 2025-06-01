@@ -1,5 +1,6 @@
 import pytest
-from standard_open_inflation_package import BaseAPI, Handler, Response, NetworkError
+from standard_open_inflation_package import BaseAPI, Handler, Response
+from standard_open_inflation_package.exceptions import NetworkError
 
 
 CHECK_HTML = "https://httpbin.org"

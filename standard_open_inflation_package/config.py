@@ -130,6 +130,7 @@ ARCHIVE_EXTENSIONS = {
 
 TEXT_EXTENSIONS = {
     'text/plain': '.txt',
+    'text/html': '.html',
     'text/csv': '.csv',
     'text/xml': '.xml',
     'text/markdown': '.md',

@@ -1,4 +1,3 @@
-import pytest
 import os
 import tempfile
 from standard_open_inflation_package.utils.docs_generator import generate_docs_index

@@ -2,12 +2,12 @@ import os
 import asyncio
 import time
 import json
-import base64
 from beartype import beartype
 from beartype.typing import Union, Optional
-from .parsers import parse_response_data
+from .content_loader import parse_response_data
 from . import config as CFG
-from .models import Response, NetworkError, Handler, Request, HandlerSearchFailedError, HttpMethod
+from .models import Response, Handler, Request, HttpMethod
+from .exceptions import HandlerSearchFailedError, NetworkError
 import copy
 from urllib.parse import urlparse
 
@@ -20,7 +20,6 @@ class RequestInterceptor:
         self.handler = handler
         self.base_url = base_url
         self.start_time = start_time
-        self.captured_request_headers = {}
         self.rejected_responses = []
         self.loop = asyncio.get_running_loop()
         self.result_future = self.loop.create_future()
@@ -28,10 +27,6 @@ class RequestInterceptor:
     async def handle_route(self, route):
         """Обработчик маршрута для перехвата запросов"""
         request = route.request
-        
-        # Захватываем заголовки запроса для базового URL
-        if request.url.startswith(self.base_url):
-            self.captured_request_headers = dict(request.headers)
         
         # Выполняем запрос
         response = await route.fetch()
@@ -41,7 +36,7 @@ class RequestInterceptor:
         mock_response = self._create_mock_response(response, request.method)
         
         if self.handler.should_capture(mock_response, self.base_url):
-            await self._handle_captured_response(response, response_time)
+            await self._handle_captured_response(response, request, response_time)
         else:
             self._handle_rejected_response(response, request, response_time)
         
@@ -59,7 +54,7 @@ class RequestInterceptor:
         
         return MockResponse(response.status, response.headers, response.url, method)
     
-    async def _handle_captured_response(self, response, response_time: float):
+    async def _handle_captured_response(self, response, request, response_time: float):
         """Обрабатывает захваченный response"""
         if self.result_future.done():
             return
@@ -76,7 +71,7 @@ class RequestInterceptor:
             duration = response_time - self.start_time
             result = Response(
                 status=response.status,
-                request_headers=self.captured_request_headers,
+                request_headers=request.headers,
                 response_headers=response.headers,
                 response=parsed_data,
                 duration=duration,
@@ -104,7 +99,7 @@ class RequestInterceptor:
             duration = response_time - self.start_time
             self.rejected_responses.append(Response(
                 status=response.status,
-                request_headers=dict(request.headers),
+                request_headers=request.headers,
                 response_headers=response.headers,
                 response=None,
                 duration=duration,

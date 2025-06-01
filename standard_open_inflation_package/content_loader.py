@@ -1,9 +1,9 @@
-import re
 import json
 from typing import Union
 from io import BytesIO
 from beartype import beartype
 from . import config as CFG
+from .tools import parse_content_type
 
 
 @beartype
@@ -65,47 +65,6 @@ def _remove_csrf_prefixes(text: str) -> str:
     
     # Если не нашли валидный JSON, возвращаем оригинал
     return text
-
-
-@beartype
-def parse_content_type(content_type: str) -> dict[str, str]:
-    """
-    Парсит строку Content-Type и возвращает словарь с основным типом и параметрами.
-    
-    Args:
-        content_type: Content-Type из заголовков ответа (например, "text/html; charset=utf-8")
-    
-    Returns:
-        Словарь с ключом 'content_type' для основного типа и всеми дополнительными параметрами
-    """
-    if not content_type:
-        return {'content_type': ''}
-    
-    # Нормализация и разделение на части
-    parts = content_type.lower().replace(' ', '').split(';')
-    
-    # Основной тип контента
-    result = {
-        'content_type': parts[0],
-        'charset': 'utf-8'  # По умолчанию устанавливаем utf-8
-    }
-
-    # Обработка дополнительных параметров
-    for part in parts[1:]:
-        if not part:
-            continue
-        
-        if '=' in part:
-            key, value = part.split('=', 1)
-            # Удаление кавычек, если они есть
-            value = value.strip('"\'')
-            result[key] = value
-        else:
-            # Для параметров без значений
-            result[part] = ''
-    
-    return result
-
 
 @beartype
 def parse_response_data(data: Union[str, bytes], content_type: str) -> Union[dict, list, str, BytesIO]:

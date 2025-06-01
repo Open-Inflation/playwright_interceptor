@@ -6,7 +6,8 @@ from beartype import beartype
 from beartype.typing import Union, Optional, Callable
 from .tools import parse_proxy
 from . import config as CFG
-from .models import Response, Handler, Request, HandlerSearchFailedError
+from .models import Response, Handler
+from .exceptions import HandlerSearchFailedError
 
 
 class BaseAPI:
