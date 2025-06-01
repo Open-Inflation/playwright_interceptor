@@ -2,6 +2,7 @@ import os
 import asyncio
 import time
 import json
+import base64
 from beartype import beartype
 from beartype.typing import Union, Optional
 from .parsers import parse_response_data
@@ -9,6 +10,162 @@ from . import config as CFG
 from .models import Response, NetworkError, Handler, Request, HandlerSearchFailedError, HttpMethod
 import copy
 from urllib.parse import urlparse
+
+
+class RequestInterceptor:
+    """Класс для перехвата HTTP-запросов через Playwright route interception"""
+    
+    def __init__(self, api, handler: Handler, base_url: str, start_time: float):
+        self.api = api
+        self.handler = handler
+        self.base_url = base_url
+        self.start_time = start_time
+        self.captured_request_headers = {}
+        self.rejected_responses = []
+        self.loop = asyncio.get_running_loop()
+        self.result_future = self.loop.create_future()
+    
+    async def handle_route(self, route):
+        """Обработчик маршрута для перехвата запросов"""
+        request = route.request
+        
+        # Захватываем заголовки запроса для базового URL
+        if request.url.startswith(self.base_url):
+            self.captured_request_headers = dict(request.headers)
+        
+        # Выполняем запрос
+        response = await route.fetch()
+        response_time = time.time()  # Записываем время получения response
+        
+        # Создаем мок-объект для проверки handler
+        mock_response = self._create_mock_response(response, request.method)
+        
+        if self.handler.should_capture(mock_response, self.base_url):
+            await self._handle_captured_response(response, response_time)
+        else:
+            self._handle_rejected_response(response, request, response_time)
+        
+        # Возвращаем оригинальный ответ
+        await route.fulfill(response=response)
+    
+    def _create_mock_response(self, response, method: str):
+        """Создает мок-объект response для проверки handler"""
+        class MockResponse:
+            def __init__(self, status, headers, url, method):
+                self.status = status
+                self.headers = headers
+                self.url = url
+                self.request = type('MockRequest', (), {'method': method})()
+        
+        return MockResponse(response.status, response.headers, response.url, method)
+    
+    async def _handle_captured_response(self, response, response_time: float):
+        """Обрабатывает захваченный response"""
+        if self.result_future.done():
+            return
+            
+        try:
+            # Получаем тело ответа
+            raw_data = await response.body()
+            content_type = response.headers.get("content-type", "").lower()
+            
+            # Парсим данные
+            parsed_data = parse_response_data(raw_data, content_type)
+            
+            # Создаем Response объект
+            duration = response_time - self.start_time
+            result = Response(
+                status=response.status,
+                request_headers=self.captured_request_headers,
+                response_headers=response.headers,
+                response=parsed_data,
+                duration=duration,
+                url=response.url
+            )
+            
+            self.api._logger.info(f"{CFG.LOG_REQUEST_COMPLETED} {duration:.3f}s")
+            self.result_future.set_result(result)
+            
+        except Exception as e:
+            self.api._logger.warning(f"{CFG.LOG_FAILED_TO_GET_RESPONSE_BODY} {response.url}: {e}")
+            if not self.result_future.done():
+                self.result_future.set_exception(e)
+    
+    def _handle_rejected_response(self, response, request, response_time: float):
+        """Обрабатывает отклоненный response"""
+        # Для Handler.NONE() или режима отладки сохраняем полное содержимое
+        should_store_content = (self.handler.handler_type == "none" or self.api.debug)
+        
+        if should_store_content:
+            # Асинхронно получаем тело ответа для анализа
+            asyncio.create_task(self._store_rejected_response_with_content(response, request, response_time))
+        else:
+            # Обычное поведение - сохраняем без содержимого
+            duration = response_time - self.start_time
+            self.rejected_responses.append(Response(
+                status=response.status,
+                request_headers=dict(request.headers),
+                response_headers=response.headers,
+                response=None,
+                duration=duration,
+                url=response.url
+            ))
+    
+    async def _store_rejected_response_with_content(self, response, request, response_time: float):
+        """Асинхронно сохраняет отклоненный response с полным содержимым"""
+        try:
+            # Вычисляем duration СРАЗУ, на основе времени получения response
+            duration = response_time - self.start_time
+            
+            # Получаем тело ответа (это может занять время, но duration уже зафиксирован)
+            raw_data = await response.body()
+            content_type = response.headers.get("content-type", "").lower()
+            
+            # Парсим данные
+            parsed_data = parse_response_data(raw_data, content_type)
+            
+            # Создаем Response объект с полным содержимым
+            self.rejected_responses.append(Response(
+                status=response.status,
+                request_headers=dict(request.headers),
+                response_headers=response.headers,
+                response=parsed_data,
+                duration=duration,
+                url=response.url
+            ))
+            
+            self.api._logger.debug(f"Stored rejected response with content: {response.url}")
+            
+        except Exception as e:
+            self.api._logger.warning(f"Failed to get rejected response body {response.url}: {e}")
+            # Fallback - сохраняем без содержимого, но с правильным duration
+            duration = response_time - self.start_time
+            self.rejected_responses.append(Response(
+                status=response.status,
+                request_headers=dict(request.headers),
+                response_headers=response.headers,
+                response=None,
+                duration=duration,
+                url=response.url
+            ))
+    
+    async def wait_for_result(self, timeout: float) -> Union[Response, HandlerSearchFailedError]:
+        """Ожидает результат перехвата с таймаутом"""
+        try:
+            return await asyncio.wait_for(self.result_future, timeout=timeout)
+        except asyncio.TimeoutError:
+            duration = time.time() - self.start_time
+            self.api._logger.warning(
+                f"Handler {self.handler.handler_type} not found suitable response for {self.base_url}. "
+                f"Rejected {len(self.rejected_responses)} responses. Duration: {duration:.3f}s"
+            )
+            
+            return HandlerSearchFailedError(
+                handler=self.handler,
+                url=self.base_url,
+                rejected_responses=self.rejected_responses,
+                duration=duration
+            )
 
 
 class Page:
@@ -21,7 +178,6 @@ class Page:
         """Создание и модификация объекта запроса"""
         # Создаем объект Request если передана строка
         if isinstance(request, str):
-            from .models import HttpMethod
             default_headers = {"Content-Type": CFG.DEFAULT_CONTENT_TYPE}
             request_obj = Request(
                 url=request, 
@@ -51,128 +207,38 @@ class Page:
 
     @beartype
     async def direct_fetch(self, url: str, handler: Handler = Handler.MAIN(), wait_selector: Optional[str] = None) -> Union[Response, HandlerSearchFailedError]:
+        """
+        Выполняет перехват HTTP-запросов через Playwright route interception.
+        Подходит для Camoufox/Firefox браузеров.
+        """
         if not self._page:
             raise RuntimeError(CFG.LOG_PAGE_NOT_AVAILABLE)
             
         start_time = time.time()
-
-        # Готовим Future и колбэки для response и request
-        loop = asyncio.get_running_loop()
-        response_future = loop.create_future()
-        captured_request_headers = {}
-        rejected_responses = []  # Список отклоненных response
-
-        def _on_request(req):
-            # Перехватываем заголовки запроса для нужного URL
-            if req.url.startswith(url):
-                nonlocal captured_request_headers
-                captured_request_headers = dict(req.headers)
-
-        def _on_response(resp):
-            # Получаем данные сразу в момент перехвата response
-            async def get_response_data():
-                data = {
-                    'status': resp.status,
-                    'headers': dict(resp.headers),
-                    'content_type': resp.headers.get("content-type", "").lower(),
-                    'raw_data': None,
-                    'url': resp.url
-                }
-
-                try:
-                    raw_data = await resp.body()
-                    data['raw_data'] = raw_data
-                except Exception as e:
-                    # Если не удалось получить body, возвращаем базовую информацию
-                    data['error'] = str(e)
-                
-                return data
-
-            if handler.should_capture(resp, url) and not response_future.done():
-                # Создаем задачу для получения данных и устанавливаем результат
-                task = asyncio.create_task(get_response_data())
-                response_future.set_result(task)
-            else:
-                # Добавляем задачу получения данных отклоненного response
-                data = None
-                if self.API.debug or handler.handler_type == 'none':
-                    # Если это отладочный режим или Handler.NONE(), получаем данные
-                    # Создаем задачу для получения данных отклоненного response
-                    # но не ждем её выполнения, просто логируем что response был отклонен
-                    asyncio.create_task(get_response_data())
-
-                rejected_responses.append(Response(
-                    status=resp.status,
-                    request_headers=dict(resp.request.headers) if resp.request else {},
-                    response_headers=dict(resp.headers),
-                    response=data,
-                    duration=time.time() - start_time,
-                    url=resp.url
-                ))
-
-        self.API._bcontext.on("request", _on_request)
-        self.API._bcontext.on("response", _on_response)
-
+        
+        # Инициализируем перехватчик запросов
+        interceptor = RequestInterceptor(self.API, handler, url, start_time)
+        
         try:
+            # Устанавливаем перехват маршрутов
+            await self._page.route("**/*", interceptor.handle_route)
+            
+            # Переходим на страницу
             await self._page.evaluate(f"window.location.href = '{url}';")
-
+            
             # Ожидание селектора если указан
             if wait_selector:
-                # Playwright требует timeout в миллисекундах
-                await self._page.wait_for_selector(wait_selector, timeout=self.API.timeout * CFG.MILLISECONDS_MULTIPLIER)
-
-            try:
-                # Получаем задачу с данными response
-                # asyncio.wait_for требует timeout в секундах
-                response_task = await asyncio.wait_for(response_future, timeout=self.API.timeout)
-                response_data = await response_task
-                
-                # Если возникла ошибка при получении body, логируем и поднимаем исключение
-                if response_data.get('error'):
-                    error_msg = f"Failed to get response body: {response_data['error']}"
-                    self.API._logger.error(error_msg)
-                    raise RuntimeError(error_msg)
-                
-                # Используем полученные данные
-                raw_data = response_data['raw_data']
-                content_type = response_data['content_type']
-                status = response_data['status']
-                response_headers = response_data['headers']
-                response_url = response_data['url']
-                
-                data = parse_response_data(raw_data, content_type)
-                
-                # Вычисляем метрики производительности
-                duration = time.time() - start_time
-                self.API._logger.info(f"{CFG.LOG_REQUEST_COMPLETED} {duration:.3f}s")
-                
-                # Возвращаем объект Response с атрибутами status, request_headers, response_headers, response, duration, url
-                return Response(
-                    status=status,
-                    request_headers=captured_request_headers,
-                    response_headers=response_headers,
-                    response=data,
-                    duration=duration,
-                    url=response_url
+                await self._page.wait_for_selector(
+                    wait_selector, 
+                    timeout=self.API.timeout * CFG.MILLISECONDS_MULTIPLIER
                 )
-                
-            except asyncio.TimeoutError:
-                # Если timeout - собираем все отклоненные response и возвращаем HandlerNotFoundError
-                duration = time.time() - start_time
-                
-                self.API._logger.warning(f"Handler {handler.handler_type} not found suitable response for {url}. Rejected {len(rejected_responses)} responses. Duration: {duration:.3f}s")
-                
-                return HandlerSearchFailedError(
-                    handler=handler,
-                    url=url,
-                    rejected_responses=rejected_responses,
-                    duration=duration
-                )
-                
+            
+            # Ждем результат перехвата
+            return await interceptor.wait_for_result(self.API.timeout)
+            
         finally:
-            # Удаляем колбэки после завершения
-            self.API._bcontext.remove_listener("request", _on_request)
-            self.API._bcontext.remove_listener("response", _on_response)
+            # Очищаем перехват маршрутов
+            await self._page.unroute("**/*", interceptor.handle_route)
 
     @beartype
     async def inject_fetch(self, request: Union[Request, str]) -> Union[Response, NetworkError]:

@@ -46,6 +46,7 @@ LOG_COOKIE_PROCESSING_FAILED = "Failed to process Set-Cookie header"
 LOG_REQUEST_MODIFIER_FAILED_TYPE = "request_modifier_func returned non-Request object"
 LOG_REQUEST_MODIFIER_ANY_TYPE = "Request method ANY - is not a specific type."
 LOG_PAGE_NOT_AVAILABLE = "Page is not available"
+LOG_FAILED_TO_GET_RESPONSE_BODY = "Failed to get response body for"
 
 # File extensions mapping
 IMAGE_EXTENSIONS = {

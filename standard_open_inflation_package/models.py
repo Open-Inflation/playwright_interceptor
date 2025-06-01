@@ -157,8 +157,16 @@ class Handler:
             return False
         
         if self.handler_type == "main":
-            # Для MAIN проверяем основную страницу
-            return full_url == base_url
+            # Для MAIN проверяем основную страницу с учетом возможных редиректов
+            from urllib.parse import urlparse
+            base_parsed = urlparse(base_url)
+            resp_parsed = urlparse(full_url)
+            
+            # Сравниваем схему, хост и порт
+            return (base_parsed.scheme == resp_parsed.scheme and 
+                    base_parsed.netloc == resp_parsed.netloc and
+                    # Путь может быть пустым или корневым
+                    (resp_parsed.path in ['', '/'] or resp_parsed.path == base_parsed.path))
         # Если мы не слушаем main, то не реагируем
         elif base_url == full_url:
             return False
