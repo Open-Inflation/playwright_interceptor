@@ -3,62 +3,83 @@ import asyncio
 import time
 import json
 from beartype import beartype
-from beartype.typing import Union, Optional
+from beartype.typing import Union, Optional, List, Dict
 from .content_loader import parse_response_data
 from . import config as CFG
-from .models import Response, Handler, Request, HttpMethod
-from .exceptions import HandlerSearchFailedError, NetworkError
+from .models import Response, Request, HttpMethod
+from .exceptions import NetworkError
+from .handler import Handler, HandlerSearchFailed, HandlerSearchSuccess
 import copy
 from urllib.parse import urlparse
 
 
-class RequestInterceptor:
-    """Класс для перехвата HTTP-запросов через Playwright route interception"""
+class MockResponse:
+    @beartype
+    def __init__(self, status, headers, url, method):
+        self.status = status
+        self.headers = headers
+        self.url = url
+        self.request = type('MockRequest', (), {'method': method})()
+
+
+class MultiRequestInterceptor:
+    """Класс для перехвата HTTP-запросов с поддержкой множественных хандлеров"""
     
-    def __init__(self, api, handler: Handler, base_url: str, start_time: float):
+    @beartype
+    def __init__(self, api, handlers: List[Handler], base_url: str, start_time: float):
         self.api = api
-        self.handler = handler
+        self.handlers = handlers
         self.base_url = base_url
         self.start_time = start_time
         self.rejected_responses = []
         self.loop = asyncio.get_running_loop()
-        self.result_future = self.loop.create_future()
+        
+        # Словарь для хранения результатов каждого хандлера (используем slug как ключ)
+        self.handler_results: Dict[str, List[Response]] = {handler.slug: [] for handler in handlers}
+        self.handler_errors: Dict[str, HandlerSearchFailed] = {}
+        
+        # Future для завершения работы
+        self.completion_future = self.loop.create_future()
+        self.timeout_task = None
     
+    @beartype
     async def handle_route(self, route):
         """Обработчик маршрута для перехвата запросов"""
         request = route.request
         
         # Выполняем запрос
         response = await route.fetch()
-        response_time = time.time()  # Записываем время получения response
+        response_time = time.time()
         
-        # Создаем мок-объект для проверки handler
-        mock_response = self._create_mock_response(response, request.method)
+        # Создаем мок-объект для проверки хандлеров
+        mock_response = MockResponse(response.status, response.headers, response.url, request.method)
+
+        # Проверяем каждый хандлер
+        captured_by_any_handler = False
+        for handler in self.handlers:
+            if handler.slug in self.handler_errors:
+                continue  # Пропускаем хандлеры, которые уже завершились с ошибкой
+                
+            if handler.should_capture(mock_response, self.base_url):
+                await self._handle_captured_response(handler, response, request, response_time)
+                captured_by_any_handler = True
+                self.api._logger.debug(f"Handler {handler.handler_type} captured: {response.url}")
+            else:
+                self.api._logger.debug(f"Handler {handler.handler_type} rejected: {response.url} (content-type: {response.headers.get('content-type', 'unknown')})")
         
-        if self.handler.should_capture(mock_response, self.base_url):
-            await self._handle_captured_response(response, request, response_time)
-        else:
+        if not captured_by_any_handler:
             self._handle_rejected_response(response, request, response_time)
+            self.api._logger.debug(f"All handlers rejected: {response.url}")
+        
+        # Проверяем, завершены ли все хандлеры
+        self._check_completion()
         
         # Возвращаем оригинальный ответ
         await route.fulfill(response=response)
     
-    def _create_mock_response(self, response, method: str):
-        """Создает мок-объект response для проверки handler"""
-        class MockResponse:
-            def __init__(self, status, headers, url, method):
-                self.status = status
-                self.headers = headers
-                self.url = url
-                self.request = type('MockRequest', (), {'method': method})()
-        
-        return MockResponse(response.status, response.headers, response.url, method)
-    
-    async def _handle_captured_response(self, response, request, response_time: float):
-        """Обрабатывает захваченный response"""
-        if self.result_future.done():
-            return
-            
+    @beartype
+    async def _handle_captured_response(self, handler: Handler, response, request, response_time: float):
+        """Обрабатывает захваченный response для конкретного хандлера"""
         try:
             # Получаем тело ответа
             raw_data = await response.body()
@@ -78,92 +99,124 @@ class RequestInterceptor:
                 url=response.url
             )
             
-            self.api._logger.info(f"{CFG.LOG_REQUEST_COMPLETED} {duration:.3f}s")
-            self.result_future.set_result(result)
+            # Добавляем результат к хандлеру
+            self.handler_results[handler.slug].append(result)
+            
+            self.api._logger.info(f"Handler {handler.handler_type} captured response from {response.url} ({len(self.handler_results[handler.slug])}/{handler.max_responses or 'unlimited'})")
             
         except Exception as e:
-            self.api._logger.warning(f"{CFG.LOG_FAILED_TO_GET_RESPONSE_BODY} {response.url}: {e}")
-            if not self.result_future.done():
-                self.result_future.set_exception(e)
+            self.api._logger.warning(f"Failed to process response for handler {handler.handler_type} from {response.url}: {e}")
     
+    @beartype
     def _handle_rejected_response(self, response, request, response_time: float):
         """Обрабатывает отклоненный response"""
-        # Для Handler.NONE() или режима отладки сохраняем полное содержимое
-        should_store_content = (self.handler.handler_type == "none" or self.api.debug)
+        # Сохраняем отклоненные ответы для анализа
+        duration = response_time - self.start_time
+        self.rejected_responses.append(Response(
+            status=response.status,
+            request_headers=request.headers,
+            response_headers=response.headers,
+            response=None,
+            duration=duration,
+            url=response.url
+        ))
+    
+    @beartype
+    def _check_completion(self):
+        """Проверяет, завершены ли все хандлеры"""
+        if self.completion_future.done():
+            return
+            
+        # Проверяем каждый хандлер
+        all_completed = True
+        for handler in self.handlers:
+            if handler.slug in self.handler_errors:
+                continue  # Уже завершен с ошибкой
+                
+            # Если хандлер достиг лимита ответов, он завершен
+            if handler.max_responses is not None and len(self.handler_results[handler.slug]) >= handler.max_responses:
+                continue
+            
+            # Если хандлер еще не завершен, продолжаем ожидание
+            all_completed = False
+            break
         
-        if should_store_content:
-            # Асинхронно получаем тело ответа для анализа
-            asyncio.create_task(self._store_rejected_response_with_content(response, request, response_time))
+        # НЕ завершаем автоматически! Пусть работает до таймаута
+        # Это позволит всем хандлерам получить возможность поймать свои ответы
+        if all_completed:
+            # Все хандлеры достигли своих лимитов, но даем еще немного времени
+            # для загрузки дополнительных ресурсов
+            pass
+    
+    @beartype
+    def _complete_all_handlers(self):
+        """Завершает работу всех хандлеров"""
+        if self.completion_future.done():
+            return
+            
+        # Формируем результат
+        result = {}
+        current_time = time.time()
+        
+        for handler in self.handlers:
+            if handler.slug in self.handler_errors:
+                result[handler] = self.handler_errors[handler.slug]
+            elif self.handler_results[handler.slug]:
+                result[handler] = self.handler_results[handler.slug]
+            else:
+                # Хандлер не получил ни одного ответа
+                duration = current_time - self.start_time
+                error = HandlerSearchFailed(
+                    rejected_responses=self.rejected_responses,
+                    duration=duration,
+                    handler_slug=handler.slug
+                )
+                result[handler] = error
+        
+        self.completion_future.set_result(result)
+    
+    @beartype
+    async def wait_for_results(self, timeout: float) -> List[Union[HandlerSearchSuccess, HandlerSearchFailed]]:
+        """Ожидает результатов всех хандлеров с таймаутом"""
+        # Устанавливаем таймаут
+        self.timeout_task = asyncio.create_task(asyncio.sleep(timeout))
+        
+        # Ожидаем либо завершения всех хандлеров, либо таймаута
+        done, _pending = await asyncio.wait(
+            [self.completion_future, self.timeout_task],
+            return_when=asyncio.FIRST_COMPLETED
+        )
+        
+        if self.completion_future in done:
+            # Все хандлеры завершились
+            self.timeout_task.cancel()
+            return await self.completion_future
         else:
-            # Обычное поведение - сохраняем без содержимого
-            duration = response_time - self.start_time
-            self.rejected_responses.append(Response(
-                status=response.status,
-                request_headers=request.headers,
-                response_headers=response.headers,
-                response=None,
-                duration=duration,
-                url=response.url
-            ))
-    
-    async def _store_rejected_response_with_content(self, response, request, response_time: float):
-        """Асинхронно сохраняет отклоненный response с полным содержимым"""
-        try:
-            # Вычисляем duration СРАЗУ, на основе времени получения response
-            duration = response_time - self.start_time
-            
-            # Получаем тело ответа (это может занять время, но duration уже зафиксирован)
-            raw_data = await response.body()
-            content_type = response.headers.get("content-type", "").lower()
-            
-            # Парсим данные
-            parsed_data = parse_response_data(raw_data, content_type)
-            
-            # Создаем Response объект с полным содержимым
-            self.rejected_responses.append(Response(
-                status=response.status,
-                request_headers=dict(request.headers),
-                response_headers=response.headers,
-                response=parsed_data,
-                duration=duration,
-                url=response.url
-            ))
-            
-            self.api._logger.debug(f"Stored rejected response with content: {response.url}")
-            
-        except Exception as e:
-            self.api._logger.warning(f"Failed to get rejected response body {response.url}: {e}")
-            # Fallback - сохраняем без содержимого, но с правильным duration
-            duration = response_time - self.start_time
-            self.rejected_responses.append(Response(
-                status=response.status,
-                request_headers=dict(request.headers),
-                response_headers=response.headers,
-                response=None,
-                duration=duration,
-                url=response.url
-            ))
-    
-    async def wait_for_result(self, timeout: float) -> Union[Response, HandlerSearchFailedError]:
-        """Ожидает результат перехвата с таймаутом"""
-        try:
-            return await asyncio.wait_for(self.result_future, timeout=timeout)
-        except asyncio.TimeoutError:
+            # Таймаут
             duration = time.time() - self.start_time
-            self.api._logger.warning(
-                f"Handler {self.handler.handler_type} not found suitable response for {self.base_url}. "
-                f"Rejected {len(self.rejected_responses)} responses. Duration: {duration:.3f}s"
-            )
+            self.api._logger.warning(f"Timeout reached for multi-handler request to {self.base_url}. Duration: {duration:.3f}s")
             
-            return HandlerSearchFailedError(
-                handler=self.handler,
-                url=self.base_url,
-                rejected_responses=self.rejected_responses,
-                duration=duration
-            )
+            # Формируем результат с тем, что успели получить
+            result = []
+            for handler in self.handlers:
+                if self.handler_results[handler.slug]:
+                    result.append(HandlerSearchSuccess(
+                        responses=self.handler_results[handler.slug],
+                        duration=duration,
+                        handler_slug=handler.slug
+                    ))
+                else:
+                    result.append(HandlerSearchFailed(
+                        rejected_responses=self.rejected_responses,
+                        duration=duration,
+                        handler_slug=handler.slug
+                    ))
+
+            return result
 
 
 class Page:
+    @beartype
     def __init__(self, api, page):
         self.API = api
         self._page = page
@@ -201,22 +254,46 @@ class Page:
         return request_obj
 
     @beartype
-    async def direct_fetch(self, url: str, handler: Handler = Handler.MAIN(), wait_selector: Optional[str] = None) -> Union[Response, HandlerSearchFailedError]:
+    async def direct_fetch(self, url: str, handlers: Union[Handler, List[Handler]] = Handler.MAIN(), wait_selector: Optional[str] = None) -> List[Union[HandlerSearchSuccess, HandlerSearchFailed]]:
         """
         Выполняет перехват HTTP-запросов через Playwright route interception.
-        Подходит для Camoufox/Firefox браузеров.
+        Поддерживает как одиночные хандлеры, так и множественные.
+        
+        Args:
+            url: URL для запроса
+            handlers: Один хандлер или список хандлеров. Если None, используется Handler.MAIN()
+            wait_selector: Селектор для ожидания
+            
+        Returns:
+            - Для множественных хандлеров: List[Union[HandlerSearchSuccess, HandlerSearchFailed]]]
         """
         if not self._page:
             raise RuntimeError(CFG.LOG_PAGE_NOT_AVAILABLE)
             
         start_time = time.time()
         
-        # Инициализируем перехватчик запросов
-        interceptor = RequestInterceptor(self.API, handler, url, start_time)
+        # Обрабатываем входные параметры
+        if isinstance(handlers, Handler):
+            handlers = [handlers]
+
+        # Проверяем уникальность slug'ов
+        slugs = [handler.slug for handler in handlers]
+        if len(slugs) != len(set(slugs)):
+            duplicate_slugs = []
+            seen = set()
+            for slug in slugs:
+                if slug in seen:
+                    duplicate_slugs.append(slug)
+                else:
+                    seen.add(slug)
+            raise ValueError(f"Обнаружены дублирующиеся slug'и в handlers: {duplicate_slugs}")
+
+        # Новая логика для множественных хандлеров
+        multi_interceptor = MultiRequestInterceptor(self.API, handlers, url, start_time)
         
         try:
             # Устанавливаем перехват маршрутов
-            await self._page.route("**/*", interceptor.handle_route)
+            await self._page.route("**/*", multi_interceptor.handle_route)
             
             # Переходим на страницу
             await self._page.evaluate(f"window.location.href = '{url}';")
@@ -228,12 +305,12 @@ class Page:
                     timeout=self.API.timeout * CFG.MILLISECONDS_MULTIPLIER
                 )
             
-            # Ждем результат перехвата
-            return await interceptor.wait_for_result(self.API.timeout)
+            # Ждем результатов всех хандлеров
+            return await multi_interceptor.wait_for_results(self.API.timeout)
             
         finally:
             # Очищаем перехват маршрутов
-            await self._page.unroute("**/*", interceptor.handle_route)
+            await self._page.unroute("**/*", multi_interceptor.handle_route)
 
     @beartype
     async def inject_fetch(self, request: Union[Request, str]) -> Union[Response, NetworkError]:
@@ -351,6 +428,7 @@ class Page:
             url=final_request.real_url
         )
 
+    @beartype
     async def close(self):
         """Закрывает страницу"""
         if self._page:

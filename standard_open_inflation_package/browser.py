@@ -6,8 +6,7 @@ from beartype import beartype
 from beartype.typing import Union, Optional, Callable
 from .tools import parse_proxy
 from . import config as CFG
-from .models import Response, Handler
-from .exceptions import HandlerSearchFailedError
+from .handler import Handler, HandlerSearchSuccess, HandlerSearchFailed
 
 
 class BaseAPI:
@@ -44,6 +43,7 @@ class BaseAPI:
         if not self._logger.hasHandlers():
             self._logger.addHandler(handler)
     
+    @beartype
     async def get_cookies(self) -> dict:
         """
         Возвращает текущие куки в виде словаря.
@@ -129,7 +129,7 @@ class BaseAPI:
     
 
     @beartype
-    async def new_direct_fetch(self, url: str, handler: Handler = Handler.MAIN(), wait_selector: Optional[str] = None) -> Union[Response, HandlerSearchFailedError]:  
+    async def new_direct_fetch(self, url: str, handler: Handler = Handler.MAIN(), wait_selector: Optional[str] = None) -> Union[HandlerSearchSuccess, HandlerSearchFailed]:  
         page = await self.new_page()
         response = await page.direct_fetch(url, handler, wait_selector)
         await page.close()
