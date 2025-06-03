@@ -13,8 +13,8 @@ import copy
 from urllib.parse import urlparse
 
 
+@beartype
 class MockResponse:
-    @beartype
     def __init__(self, status, headers, url, method):
         self.status = status
         self.headers = headers
@@ -22,10 +22,10 @@ class MockResponse:
         self.request = type('MockRequest', (), {'method': method})()
 
 
+@beartype
 class MultiRequestInterceptor:
     """Класс для перехвата HTTP-запросов с поддержкой множественных хандлеров"""
     
-    @beartype
     def __init__(self, api, handlers: List[Handler], base_url: str, start_time: float):
         self.api = api
         self.handlers = handlers
@@ -42,7 +42,6 @@ class MultiRequestInterceptor:
         self.completion_future = self.loop.create_future()
         self.timeout_task = None
     
-    @beartype
     async def handle_route(self, route):
         """Обработчик маршрута для перехвата запросов"""
         request = route.request
@@ -54,8 +53,8 @@ class MultiRequestInterceptor:
         # Создаем мок-объект для проверки хандлеров
         mock_response = MockResponse(response.status, response.headers, response.url, request.method)
 
-        # Проверяем каждый хандлер
-        captured_by_any_handler = False
+        # Сначала определяем какие хендлеры должны захватить этот ответ
+        capturing_handlers = []
         for handler in self.handlers:
             if handler.slug in self.handler_errors:
                 continue  # Пропускаем хандлеры, которые уже завершились с ошибкой
@@ -65,13 +64,15 @@ class MultiRequestInterceptor:
                 continue  # Хендлер уже получил максимальное количество ответов
                 
             if handler.should_capture(mock_response, self.base_url):
-                await self._handle_captured_response(handler, response, request, response_time)
-                captured_by_any_handler = True
-                self.api._logger.debug(f"Handler {handler.handler_type} captured: {response.url}")
+                capturing_handlers.append(handler)
+                self.api._logger.debug(f"Handler {handler.handler_type} will capture: {response.url}")
             else:
                 self.api._logger.debug(f"Handler {handler.handler_type} rejected: {response.url} (content-type: {response.headers.get('content-type', 'unknown')})")
         
-        if not captured_by_any_handler:
+        # Если есть хендлеры для захвата, обрабатываем ответ один раз
+        if capturing_handlers:
+            await self._handle_captured_response(capturing_handlers, response, request, response_time)
+        else:
             self._handle_rejected_response(response, request, response_time)
             self.api._logger.debug(f"All handlers rejected: {response.url}")
         
@@ -81,37 +82,35 @@ class MultiRequestInterceptor:
         # Возвращаем оригинальный ответ
         await route.fulfill(response=response)
     
-    @beartype
-    async def _handle_captured_response(self, handler: Handler, response, request, response_time: float):
-        """Обрабатывает захваченный response для конкретного хандлера"""
+    async def _handle_captured_response(self, handlers: List[Handler], response, request, response_time: float):
+        """Обрабатывает захваченный response для множественных хандлеров оптимально"""
         try:
-            # Получаем тело ответа
+            # Получаем тело ответа ТОЛЬКО ОДИН РАЗ
             raw_data = await response.body()
+
             content_type = response.headers.get("content-type", "").lower()
-            
-            # Парсим данные
             parsed_data = parse_response_data(raw_data, content_type)
             
-            # Создаем Response объект
-            duration = response_time - self.start_time
+            # Создаем Response объект для каждого хендлера
             result = Response(
                 status=response.status,
                 request_headers=request.headers,
                 response_headers=response.headers,
-                response=parsed_data,
-                duration=duration,
+                response=parsed_data,  # Переиспользуем уже распарсенные данные
+                duration=response_time - self.start_time,
                 url=response.url
             )
-            
-            # Добавляем результат к хандлеру
-            self.handler_results[handler.slug].append(result)
-            
-            self.api._logger.info(f"Handler {handler.handler_type} captured response from {response.url} ({len(self.handler_results[handler.slug])}/{handler.max_responses or 'unlimited'})")
-            
+
+            for handler in handlers:    
+                # Добавляем результат к хандлеру
+                self.handler_results[handler.slug].append(result)
+                
+                self.api._logger.info(f"Handler {handler.handler_type} captured response from {response.url} ({len(self.handler_results[handler.slug])}/{handler.max_responses or 'unlimited'})")
+                
         except Exception as e:
-            self.api._logger.warning(f"Failed to process response for handler {handler.handler_type} from {response.url}: {e}")
-    
-    @beartype
+            # Если произошла ошибка, логируем для всех хендлеров
+            self.api._logger.warning(f"Failed to process response for handlers {', '.join(handler.handler_type for handler in handlers)} from {response.url}: {e}")
+
     def _handle_rejected_response(self, response, request, response_time: float):
         """Обрабатывает отклоненный response"""
         # Сохраняем отклоненные ответы для анализа
@@ -125,7 +124,6 @@ class MultiRequestInterceptor:
             url=response.url
         ))
     
-    @beartype
     def _check_completion(self):
         """Проверяет, завершены ли все хандлеры"""
         if self.completion_future.done():
@@ -150,7 +148,6 @@ class MultiRequestInterceptor:
             self.api._logger.info(f"All handlers reached their max_responses limits, completing...")
             self._complete_all_handlers()
     
-    @beartype
     def _complete_all_handlers(self):
         """Завершает работу всех хандлеров"""
         if self.completion_future.done():
@@ -182,7 +179,6 @@ class MultiRequestInterceptor:
         
         self.completion_future.set_result(result)
     
-    @beartype
     async def wait_for_results(self, timeout: float) -> List[Union[HandlerSearchSuccess, HandlerSearchFailed]]:
         """Ожидает результатов всех хандлеров с таймаутом"""
         # Устанавливаем таймаут
@@ -222,13 +218,12 @@ class MultiRequestInterceptor:
             return result
 
 
+@beartype
 class Page:
-    @beartype
     def __init__(self, api, page):
         self.API = api
         self._page = page
     
-    @beartype
     async def modify_request(self, request: Union[Request, str]) -> Request:
         """Создание и модификация объекта запроса"""
         # Создаем объект Request если передана строка
@@ -260,7 +255,6 @@ class Page:
         
         return request_obj
 
-    @beartype
     async def direct_fetch(self, url: str, handlers: Union[Handler, List[Handler]] = Handler.MAIN(), wait_selector: Optional[str] = None) -> List[Union[HandlerSearchSuccess, HandlerSearchFailed]]:
         """
         Выполняет перехват HTTP-запросов через Playwright route interception.
@@ -319,7 +313,6 @@ class Page:
             # Очищаем перехват маршрутов
             await self._page.unroute("**/*", multi_interceptor.handle_route)
 
-    @beartype
     async def inject_fetch(self, request: Union[Request, str]) -> Union[Response, NetworkError]:
         """
         Выполнение HTTP-запроса через JavaScript в браузере.
@@ -435,7 +428,6 @@ class Page:
             url=final_request.real_url
         )
 
-    @beartype
     async def close(self):
         """Закрывает страницу"""
         if self._page:

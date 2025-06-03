@@ -9,12 +9,12 @@ from . import config as CFG
 from .handler import Handler, HandlerSearchSuccess, HandlerSearchFailed
 
 
+@beartype
 class BaseAPI:
     """
     Класс для загрузки JSON/image/html.
     """
 
-    @beartype
     def __init__(self,
                  debug:                 bool            = False,
                  proxy:                 str | None      = None,
@@ -43,7 +43,6 @@ class BaseAPI:
         if not self._logger.hasHandlers():
             self._logger.addHandler(handler)
     
-    @beartype
     async def get_cookies(self) -> dict:
         """
         Возвращает текущие куки в виде словаря.
@@ -65,7 +64,6 @@ class BaseAPI:
         return self._debug
 
     @debug.setter
-    @beartype
     def debug(self, value: bool) -> None:
         self._debug = value
 
@@ -74,7 +72,6 @@ class BaseAPI:
         return self._proxy
 
     @proxy.setter
-    @beartype
     def proxy(self, value: str | None) -> None:
         self._proxy = value
 
@@ -83,7 +80,6 @@ class BaseAPI:
         return self._autoclose_browser
 
     @autoclose_browser.setter
-    @beartype
     def autoclose_browser(self, value: bool) -> None:
         self._autoclose_browser = value
 
@@ -92,7 +88,6 @@ class BaseAPI:
         return self._trust_env
 
     @trust_env.setter
-    @beartype
     def trust_env(self, value: bool) -> None:
         self._trust_env = value
 
@@ -101,7 +96,6 @@ class BaseAPI:
         return self._timeout
 
     @timeout.setter
-    @beartype
     def timeout(self, value: float) -> None:
         if value <= 0:
             raise ValueError(CFG.ERROR_TIMEOUT_POSITIVE)
@@ -114,7 +108,6 @@ class BaseAPI:
         return self._start_func
     
     @start_func.setter
-    @beartype
     def start_func(self, value: Callable | None) -> None:
         self._start_func = value
 
@@ -123,19 +116,16 @@ class BaseAPI:
         return self._request_modifier_func
     
     @request_modifier_func.setter
-    @beartype
     def request_modifier_func(self, value: Callable | None) -> None:
         self._request_modifier_func = value
     
 
-    @beartype
     async def new_direct_fetch(self, url: str, handlers: Handler | List[Handler] = Handler.MAIN(), wait_selector: Optional[str] = None) -> List[Union[HandlerSearchSuccess, HandlerSearchFailed]]:  
         page = await self.new_page()
         response = await page.direct_fetch(url, handlers, wait_selector)
         await page.close()
         return response
 
-    @beartype
     async def new_page(self):
         """
         Создает новую страницу в текущем контексте браузера.
@@ -153,7 +143,6 @@ class BaseAPI:
         
         return Page(self, page)
 
-    @beartype
     async def new_session(self, include_browser: bool = True) -> None:
         await self.close(include_browser=include_browser)
 
@@ -172,7 +161,6 @@ class BaseAPI:
                 self._logger.info(f"{CFG.LOG_START_FUNC_EXECUTING} {self.start_func.__name__} {CFG.LOG_START_FUNC_EXECUTED}")
             self._logger.info(CFG.LOG_NEW_SESSION_CREATED)
 
-    @beartype
     async def close(
         self,
         include_browser: bool = True

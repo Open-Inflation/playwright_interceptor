@@ -5,17 +5,22 @@ from beartype.typing import List, Optional
 import uuid
 from . import config as CFG
 import urllib.parse
+from dataclasses import dataclass
 
 
+@beartype
+@dataclass(frozen=True)
 class Handler:
-    @beartype
-    def __init__(self, handler_type: str, startswith_url: Optional[str] = None, content_type: Optional[str] = None, method: HttpMethod = HttpMethod.ANY, max_responses: Optional[int] = None, slug: Optional[str] = None):
-        self.handler_type = handler_type
-        self.startswith_url = startswith_url
-        self.content_type = content_type
-        self.method = method
-        self.max_responses = max_responses  # None означает без ограничений
-        self.slug = slug if slug is not None else str(uuid.uuid4())[:8]  # Генерируем случайный slug если не указан
+    handler_type: str
+    startswith_url: Optional[str] = None
+    content_type: Optional[str] = None
+    method: HttpMethod = HttpMethod.ANY
+    max_responses: Optional[int] = None
+    slug: Optional[str] = None
+    
+    def __post_init__(self):
+        if self.slug is None:
+            object.__setattr__(self, 'slug', str(uuid.uuid4())[:8])
     
     def __repr__(self) -> str:
         parts = [f"Handler.{self.handler_type.upper()}()"]
@@ -29,71 +34,57 @@ class Handler:
         return f"Handler({', '.join(parts)})"
 
     @classmethod
-    @beartype
     def MAIN(cls, max_responses: Optional[int] = 1, slug: Optional[str] = None):
         return cls("main", max_responses=max_responses, slug=slug)
     
     @classmethod
-    @beartype
     def ANY(cls, startswith_url: Optional[str] = None, method: HttpMethod = HttpMethod.ANY, max_responses: Optional[int] = None, slug: Optional[str] = None):
         return cls("any", startswith_url, "", method, max_responses, slug)
     
     @classmethod
-    @beartype
     def JSON(cls, startswith_url: Optional[str] = None, method: HttpMethod = HttpMethod.ANY, max_responses: Optional[int] = None, slug: Optional[str] = None):
         return cls("json", startswith_url, "json", method, max_responses, slug)
     
     @classmethod
-    @beartype
     def JS(cls, startswith_url: Optional[str] = None, method: HttpMethod = HttpMethod.ANY, max_responses: Optional[int] = None, slug: Optional[str] = None):
         return cls("js", startswith_url, "js", method, max_responses, slug)
     
     @classmethod
-    @beartype
     def CSS(cls, startswith_url: Optional[str] = None, method: HttpMethod = HttpMethod.ANY, max_responses: Optional[int] = None, slug: Optional[str] = None):
         return cls("css", startswith_url, "css", method, max_responses, slug)
     
     @classmethod
-    @beartype
     def IMAGE(cls, startswith_url: Optional[str] = None, method: HttpMethod = HttpMethod.ANY, max_responses: Optional[int] = None, slug: Optional[str] = None):
         return cls("image", startswith_url, "image", method, max_responses, slug)
     
     @classmethod
-    @beartype
     def VIDEO(cls, startswith_url: Optional[str] = None, method: HttpMethod = HttpMethod.ANY, max_responses: Optional[int] = None, slug: Optional[str] = None):
         return cls("video", startswith_url, "video", method, max_responses, slug)
     
     @classmethod
-    @beartype
     def AUDIO(cls, startswith_url: Optional[str] = None, method: HttpMethod = HttpMethod.ANY, max_responses: Optional[int] = None, slug: Optional[str] = None):
         return cls("audio", startswith_url, "audio", method, max_responses, slug)
     
     @classmethod
-    @beartype
     def FONT(cls, startswith_url: Optional[str] = None, method: HttpMethod = HttpMethod.ANY, max_responses: Optional[int] = None, slug: Optional[str] = None):
         return cls("font", startswith_url, "font", method, max_responses, slug)
     
     @classmethod
-    @beartype
     def APPLICATION(cls, startswith_url: Optional[str] = None, method: HttpMethod = HttpMethod.ANY, max_responses: Optional[int] = None, slug: Optional[str] = None):
         return cls("application", startswith_url, "application", method, max_responses, slug)
     
     @classmethod
-    @beartype
     def ARCHIVE(cls, startswith_url: Optional[str] = None, method: HttpMethod = HttpMethod.ANY, max_responses: Optional[int] = None, slug: Optional[str] = None):
         return cls("archive", startswith_url, "archive", method, max_responses, slug)
     
     @classmethod
-    @beartype
     def TEXT(cls, startswith_url: Optional[str] = None, method: HttpMethod = HttpMethod.ANY, max_responses: Optional[int] = None, slug: Optional[str] = None):
         return cls("text", startswith_url, "text", method, max_responses, slug)
     
     @classmethod
-    @beartype
     def NONE(cls, max_responses: Optional[int] = None, slug: Optional[str] = None):
         return cls("none", max_responses=max_responses, slug=slug)
 
-    @beartype
     def should_capture(self, resp, base_url: str) -> bool:
         """Определяет, должен ли handler захватить данный response"""
         full_url = urllib.parse.unquote(resp.url)
@@ -155,36 +146,30 @@ class Handler:
                 raise TypeError(f"Unknown handler type: {self.handler_type}")
 
 
+@beartype
+@dataclass(frozen=True)
 class HandlerSearchSuccess:
     """Класс для представления успешного поиска handler'ом подходящего response"""
-
-    @beartype
-    def __init__(self, responses: List[Response], duration: float = 0.0, handler_slug: str = 'unknown'):
-        self.responses = responses
-        self.duration = duration
-        self.handler_slug = handler_slug
+    responses: List[Response]
+    duration: float = 0.0
+    handler_slug: str = 'unknown'
     
-    @beartype
     def __str__(self):
         return f"HandlerSearchSuccess: Found {len(self.responses)} responses for `{self.handler_slug}` handler."
     
-    @beartype
     def __repr__(self):
         return f"HandlerSearchSuccess(duration={self.duration:.1f}, response_count={len(self.responses)})"
 
+@beartype
+@dataclass(frozen=True)
 class HandlerSearchFailed:
     """Класс для представления ошибки, когда handler не нашел подходящего response"""
+    rejected_responses: List['Response']
+    duration: float = 0.0
+    handler_slug: str = 'unknown'
     
-    @beartype
-    def __init__(self, rejected_responses: List['Response'], duration: float = 0.0, handler_slug: str = 'unknown'):
-        self.rejected_responses = rejected_responses
-        self.duration = duration
-        self.handler_slug = handler_slug
-    
-    @beartype
     def __str__(self):
         return f"HandlerSearchFailedError: Not found suitable response for `{self.handler_slug}` handler. Rejected {len(self.rejected_responses)} responses."
 
-    @beartype
     def __repr__(self):
         return f"HandlerSearchFailedError(duration={self.duration:.1f}, rejected_count={len(self.rejected_responses)})"

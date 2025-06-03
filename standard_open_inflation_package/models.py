@@ -4,6 +4,7 @@ from beartype.typing import Union, Optional, Dict
 from .tools import parse_content_type
 from enum import Enum
 from io import BytesIO
+from dataclasses import dataclass
 
 
 class HttpMethod(Enum):
@@ -17,18 +18,17 @@ class HttpMethod(Enum):
     ANY = None  # Специальный метод для захвата любых запросов
 
 
+@beartype
+@dataclass(frozen=True)
 class Response:
     """Класс для представления ответа от API"""
     
-    @beartype
-    def __init__(self, status: int, request_headers: dict, response_headers: dict, response: Union[dict, list, str, BytesIO, None] = None, 
-                 duration: float = 0.0, url: Optional[str] = None):
-        self.status = status
-        self.request_headers = request_headers
-        self.response_headers = response_headers
-        self.response = response
-        self.duration = duration  # Время выполнения запроса в секундах
-        self.url = url  # URL эндпоинта, с которого пришёл ответ
+    status: int
+    request_headers: dict
+    response_headers: dict
+    response: Union[dict, list, str, BytesIO, None] = None
+    duration: float = 0.0
+    url: Optional[str] = None
     
     def __str__(self) -> str:
         type_data = parse_content_type(self.response_headers.get('content-type', 'unknown'))
@@ -47,15 +47,14 @@ class Response:
         url_info = f", url='{self.url}'" if self.url else ""
         return f"Response(status={self.status}, type={response_type}, content_type='{content_type}', size={response_size}, duration={self.duration:.3f}s{url_info})"
     
-    @beartype
     def __repr__(self) -> str:
         url_info = f", url='{self.url}'" if self.url else ""
         return f"Response(status={self.status}, headers={len(self.response_headers)}, response_type={type(self.response).__name__}, duration={self.duration}{url_info})"
 
+@beartype
 class Request:
     """Класс для представления HTTP запроса с возможностью модификации"""
     
-    @beartype
     def __init__(self, url: str, headers: Optional[Dict[str, str]] = None, params: Optional[Dict[str, str]] = None, 
                  body: Optional[Union[dict, str]] = None, method: HttpMethod = HttpMethod.GET):
         self._original_url = url
@@ -76,7 +75,6 @@ class Request:
         self._method = method
     
     @property
-    @beartype
     def url(self) -> str:
         """Возвращает базовый URL без параметров"""
         return urllib.parse.urlunparse((
@@ -89,31 +87,26 @@ class Request:
         ))
     
     @property
-    @beartype
     def headers(self) -> Dict[str, str]:
         """Возвращает словарь заголовков"""
         return self._headers.copy()
     
     @property
-    @beartype
     def params(self) -> Dict[str, str]:
         """Возвращает словарь параметров запроса"""
         return self._parsed_params.copy()
     
     @property
-    @beartype
     def body(self) -> Optional[Union[dict, str]]:
         """Возвращает тело запроса"""
         return self._body
     
     @property
-    @beartype
     def method(self) -> HttpMethod:
         """Возвращает HTTP метод запроса"""
         return self._method
     
     @property
-    @beartype
     def real_url(self) -> str:
         """Собирает и возвращает финальный URL с параметрами"""
         if not self._parsed_params:
@@ -129,31 +122,26 @@ class Request:
             self._parsed_url.fragment
         ))
     
-    @beartype
     def add_header(self, name: str, value: str) -> 'Request':
         """Добавляет заголовок к запросу"""
         self._headers[name] = value
         return self
     
-    @beartype
     def add_headers(self, headers: Dict[str, str]) -> 'Request':
         """Добавляет множественные заголовки к запросу"""
         self._headers.update(headers)
         return self
     
-    @beartype
     def add_param(self, name: str, value: str) -> 'Request':
         """Добавляет параметр к запросу"""
         self._parsed_params[name] = value
         return self
     
-    @beartype
     def add_params(self, params: Dict[str, str]) -> 'Request':
         """Добавляет множественные параметры к запросу"""
         self._parsed_params.update(params)
         return self
     
-    @beartype
     def remove_header(self, name: Union[str, list[str]]) -> 'Request':
         """Удаляет заголовок(и) из запроса"""
         if isinstance(name, str):
@@ -163,7 +151,6 @@ class Request:
                 self._headers.pop(header_name, None)
         return self
     
-    @beartype
     def remove_param(self, name: Union[str, list[str]]) -> 'Request':
         """Удаляет параметр(ы) из запроса"""
         if isinstance(name, str):
@@ -173,13 +160,11 @@ class Request:
                 self._parsed_params.pop(param_name, None)
         return self
     
-    @beartype
     def set_body(self, body: Optional[Union[dict, str]]) -> 'Request':
         """Устанавливает тело запроса"""
         self._body = body
         return self
     
-    @beartype
     def set_method(self, method: HttpMethod) -> 'Request':
         """Устанавливает HTTP метод запроса"""
         self._method = method
@@ -188,6 +173,5 @@ class Request:
     def __str__(self) -> str:
         return f"Request(method={self._method.value}, url='{self.real_url}', headers={len(self._headers)}, params={len(self._parsed_params)}, body={'set' if self._body else 'none'})"
     
-    @beartype
     def __repr__(self) -> str:
         return f"Request(method={self._method.value}, url='{self._original_url}', headers={self._headers}, params={self._parsed_params}, body={self._body})"

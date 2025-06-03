@@ -14,6 +14,15 @@ CHECK_HTML = DEFAULT_URLS['html']
 
 
 @pytest.mark.asyncio
+async def test_header_slug():
+    slug = 'test_slug'
+    handler = Handler.MAIN(slug=slug)
+    assert handler.slug == slug, f"Handler slug should be '{slug}', got '{handler.slug}'"
+
+    random_slug_handler = Handler.MAIN()
+    assert len(random_slug_handler.slug) == 8, "Random slug should be 8 characters long"
+
+@pytest.mark.asyncio
 async def test_html_new_direct_getter():
     await run_direct_fetch_test(
         CHECK_HTML, 
