@@ -60,6 +60,10 @@ class MultiRequestInterceptor:
             if handler.slug in self.handler_errors:
                 continue  # Пропускаем хандлеры, которые уже завершились с ошибкой
                 
+            # Проверяем, не достиг ли хендлер уже своего лимита
+            if handler.max_responses is not None and len(self.handler_results[handler.slug]) >= handler.max_responses:
+                continue  # Хендлер уже получил максимальное количество ответов
+                
             if handler.should_capture(mock_response, self.base_url):
                 await self._handle_captured_response(handler, response, request, response_time)
                 captured_by_any_handler = True
@@ -141,12 +145,10 @@ class MultiRequestInterceptor:
             all_completed = False
             break
         
-        # НЕ завершаем автоматически! Пусть работает до таймаута
-        # Это позволит всем хандлерам получить возможность поймать свои ответы
+        # Если все хандлеры достигли своих лимитов, завершаем работу
         if all_completed:
-            # Все хандлеры достигли своих лимитов, но даем еще немного времени
-            # для загрузки дополнительных ресурсов
-            pass
+            self.api._logger.info(f"All handlers reached their max_responses limits, completing...")
+            self._complete_all_handlers()
     
     @beartype
     def _complete_all_handlers(self):
@@ -155,14 +157,19 @@ class MultiRequestInterceptor:
             return
             
         # Формируем результат
-        result = {}
+        result = []
         current_time = time.time()
         
         for handler in self.handlers:
             if handler.slug in self.handler_errors:
-                result[handler] = self.handler_errors[handler.slug]
+                result.append(self.handler_errors[handler.slug])
             elif self.handler_results[handler.slug]:
-                result[handler] = self.handler_results[handler.slug]
+                duration = current_time - self.start_time
+                result.append(HandlerSearchSuccess(
+                    responses=self.handler_results[handler.slug],
+                    duration=duration,
+                    handler_slug=handler.slug
+                ))
             else:
                 # Хандлер не получил ни одного ответа
                 duration = current_time - self.start_time
@@ -171,7 +178,7 @@ class MultiRequestInterceptor:
                     duration=duration,
                     handler_slug=handler.slug
                 )
-                result[handler] = error
+                result.append(error)
         
         self.completion_future.set_result(result)
     

@@ -1,58 +1,70 @@
 import pytest
-from standard_open_inflation_package import BaseAPI, Handler, Response
-from standard_open_inflation_package.exceptions import NetworkError
+from standard_open_inflation_package import Response
+from standard_open_inflation_package.handler import Handler
 
+# Импортируем утилиты для тестирования
+from . import (
+    run_direct_fetch_test, 
+    run_page_direct_fetch_test,
+    run_inject_fetch_test,
+    assert_json_content,
+    DEFAULT_URLS
+)
 
-CHECK_HTML = "https://httpbin.org/headers"
+CHECK_HTML = DEFAULT_URLS['headers']
 
 
 @pytest.mark.asyncio
 async def test_html_new_direct_getter():
-    api = BaseAPI()
-    await api.new_session()
+    def check_json_and_headers(response):
+        # Проверяем JSON содержимое
+        assert_json_content(response, expected_structure={'headers': dict})
+        
+        # Проверяем заголовки
+        _check_headers_consistency(response)
     
-    result = await api.new_direct_fetch(CHECK_HTML, handler=Handler.MAIN())
-    await check_json(result)
-    await check_headers(result)
-
-    await api.close()
+    await run_direct_fetch_test(
+        CHECK_HTML, 
+        Handler.MAIN(),
+        expected_type=dict,
+        additional_checks=check_json_and_headers
+    )
 
 @pytest.mark.asyncio
 async def test_html_page_direct_getter():
-    api = BaseAPI()
-    await api.new_session()
-
-    page = await api.new_page()
-    result = await page.direct_fetch(
-        url=CHECK_HTML,
-        handler=Handler.MAIN(),
+    def check_json_and_headers(response):
+        # Проверяем JSON содержимое
+        assert_json_content(response, expected_structure={'headers': dict})
+        
+        # Проверяем заголовки
+        _check_headers_consistency(response)
+    
+    await run_page_direct_fetch_test(
+        CHECK_HTML,
+        Handler.MAIN(),
+        expected_type=dict,
+        additional_checks=check_json_and_headers
     )
-    await check_json(result)
-    await check_headers(result)
-
-    await page.close()
 
 @pytest.mark.asyncio
 async def test_html_inject_getter():
-    api = BaseAPI()
-    await api.new_session()
+    def check_json_and_headers(response):
+        # Проверяем JSON содержимое
+        assert_json_content(response, expected_structure={'headers': dict})
+        
+        # Проверяем заголовки
+        _check_headers_consistency(response)
+    
+    await run_inject_fetch_test(
+        CHECK_HTML,
+        expected_type=dict,
+        additional_checks=check_json_and_headers
+    )
 
-    page = await api.new_page()
-    result = await page.inject_fetch(CHECK_HTML)
-    await check_json(result)
-    await check_headers(result)
 
-    await page.close()
-
-
-async def check_json(result: Response | NetworkError):
-    assert isinstance(result, Response), "Result should be an instance of Response"
-    assert result.status == 200, f"Expected status 200, got {result.status}"
-    assert isinstance(result.response, dict), "Response should be a dictionary"
-
-async def check_headers(result: Response | NetworkError):
+def _check_headers_consistency(result: Response):
+    """Проверяет соответствие заголовков между запросом и ответом"""
     # Проверяем, что response содержит словарь с заголовками
-    assert isinstance(result, Response), "Result should be an instance of Response"
     assert isinstance(result.response, dict), "Response should be a dictionary"
     assert "headers" in result.response, "Response should contain 'headers' key"
     
@@ -76,9 +88,9 @@ async def check_headers(result: Response | NetworkError):
     
     # Фильтруем заголовки для сравнения
     filtered_server_headers = {k: v for k, v in server_received_headers.items() 
-                              if k not in excluded_headers}
+                            if k not in excluded_headers}
     filtered_browser_headers = {k: v for k, v in browser_captured_headers.items() 
-                               if k not in excluded_headers}
+                            if k not in excluded_headers}
     
     # Проверяем, что основные заголовки совпадают
     # Все заголовки которые отправил браузер должны присутствовать в заголовках сервера
@@ -91,5 +103,5 @@ async def check_headers(result: Response | NetworkError):
     required_headers = {'host', 'user-agent'}
     for required_header in required_headers:
         assert required_header in filtered_server_headers, f"Required header '{required_header}' missing"
-        
-    print(f"✓ Headers validation passed. Server received {len(filtered_server_headers)} headers, browser captured {len(filtered_browser_headers)} headers")
+            
+        print(f"✓ Headers validation passed. Server received {len(filtered_server_headers)} headers, browser captured {len(filtered_browser_headers)} headers")

@@ -3,7 +3,7 @@ import urllib.parse
 from camoufox import AsyncCamoufox
 import logging
 from beartype import beartype
-from beartype.typing import Union, Optional, Callable
+from beartype.typing import Union, Optional, Callable, List
 from .tools import parse_proxy
 from . import config as CFG
 from .handler import Handler, HandlerSearchSuccess, HandlerSearchFailed
@@ -129,9 +129,9 @@ class BaseAPI:
     
 
     @beartype
-    async def new_direct_fetch(self, url: str, handler: Handler = Handler.MAIN(), wait_selector: Optional[str] = None) -> Union[HandlerSearchSuccess, HandlerSearchFailed]:  
+    async def new_direct_fetch(self, url: str, handlers: Handler | List[Handler] = Handler.MAIN(), wait_selector: Optional[str] = None) -> List[Union[HandlerSearchSuccess, HandlerSearchFailed]]:  
         page = await self.new_page()
-        response = await page.direct_fetch(url, handler, wait_selector)
+        response = await page.direct_fetch(url, handlers, wait_selector)
         await page.close()
         return response
 
