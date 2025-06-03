@@ -3,230 +3,16 @@ import asyncio
 import time
 import json
 from beartype import beartype
-from beartype.typing import Union, Optional, List, Dict
+from beartype.typing import Union, Optional, List
 from .content_loader import parse_response_data
 from . import config as CFG
 from .models import Response, Request, HttpMethod
 from .exceptions import NetworkError
 from .handler import Handler, HandlerSearchFailed, HandlerSearchSuccess
+from .direct_request_interceptor import MultiRequestInterceptor
 import copy
 from urllib.parse import urlparse
 
-
-@beartype
-class MockResponse:
-    def __init__(self, status, headers, url, method):
-        self.status = status
-        self.headers = headers
-        self.url = url
-        self.request = type('MockRequest', (), {'method': method})()
-
-
-@beartype
-class MultiRequestInterceptor:
-    """Класс для перехвата HTTP-запросов с поддержкой множественных хандлеров"""
-    
-    def __init__(self, api, handlers: List[Handler], base_url: str, start_time: float):
-        self.api = api
-        self.handlers = handlers
-        self.base_url = base_url
-        self.start_time = start_time
-        self.rejected_responses = []
-        self.loop = asyncio.get_running_loop()
-        
-        # Словарь для хранения результатов каждого хандлера (используем slug как ключ)
-        self.handler_results: Dict[str, List[Response]] = {handler.slug: [] for handler in handlers}
-        self.handler_errors: Dict[str, HandlerSearchFailed] = {}
-        
-        # Future для завершения работы
-        self.completion_future = self.loop.create_future()
-        self.timeout_task = None
-    
-    async def handle_route(self, route):
-        """Обработчик маршрута для перехвата запросов"""
-        request = route.request
-        
-        # Выполняем запрос
-        response = await route.fetch()
-        response_time = time.time()
-        
-        # Создаем мок-объект для проверки хандлеров
-        mock_response = MockResponse(response.status, response.headers, response.url, request.method)
-
-        # Сначала определяем какие хендлеры должны захватить этот ответ
-        capturing_handlers = []
-        for handler in self.handlers:
-            if handler.slug in self.handler_errors:
-                continue  # Пропускаем хандлеры, которые уже завершились с ошибкой
-                
-            # Проверяем, не достиг ли хендлер уже своего лимита
-            if handler.max_responses is not None and len(self.handler_results[handler.slug]) >= handler.max_responses:
-                continue  # Хендлер уже получил максимальное количество ответов
-                
-            if handler.should_capture(mock_response, self.base_url):
-                capturing_handlers.append(handler)
-                self.api._logger.debug(CFG.LOG_HANDLER_WILL_CAPTURE.format(handler_type=handler.handler_type, url=response.url))
-            else:
-                self.api._logger.debug(CFG.LOG_HANDLER_REJECTED.format(handler_type=handler.handler_type, url=response.url, content_type=response.headers.get('content-type', CFG.TEXT_UNKNOWN)))
-        
-        # Если есть хендлеры для захвата, обрабатываем ответ один раз
-        if capturing_handlers:
-            await self._handle_captured_response(capturing_handlers, response, request, response_time)
-        else:
-            self._handle_rejected_response(response, request, response_time)
-            self.api._logger.debug(CFG.LOG_ALL_HANDLERS_REJECTED.format(url=response.url))
-        
-        # Проверяем, завершены ли все хандлеры
-        self._check_completion()
-        
-        # Возвращаем оригинальный ответ
-        await route.fulfill(response=response)
-    
-    async def _handle_captured_response(self, handlers: List[Handler], response, request, response_time: float):
-        """Обрабатывает захваченный response для множественных хандлеров оптимально"""
-        try:
-            # Получаем тело ответа ТОЛЬКО ОДИН РАЗ
-            raw_data = await response.body()
-
-            content_type = response.headers.get("content-type", "").lower()
-            parsed_data = parse_response_data(raw_data, content_type)
-            
-            # Создаем Response объект для каждого хендлера
-            result = Response(
-                status=response.status,
-                request_headers=request.headers,
-                response_headers=response.headers,
-                response=parsed_data,  # Переиспользуем уже распарсенные данные
-                duration=response_time - self.start_time,
-                url=response.url
-            )
-
-            for handler in handlers:    
-                # Добавляем результат к хандлеру
-                self.handler_results[handler.slug].append(result)
-                
-                max_responses_text = handler.max_responses or CFG.TEXT_UNLIMITED
-                self.api._logger.info(CFG.LOG_HANDLER_CAPTURED_RESPONSE.format(
-                    handler_type=handler.handler_type,
-                    url=response.url,
-                    current_count=len(self.handler_results[handler.slug]),
-                    max_responses=max_responses_text
-                ))
-                
-        except Exception as e:
-            # Если произошла ошибка, логируем для всех хендлеров
-            handler_types = ', '.join(handler.handler_type for handler in handlers)
-            self.api._logger.warning(CFG.LOG_FAILED_TO_PROCESS_RESPONSE.format(
-                handler_list=handler_types,
-                url=response.url,
-                error=e
-            ))
-
-    def _handle_rejected_response(self, response, request, response_time: float):
-        """Обрабатывает отклоненный response"""
-        # Сохраняем отклоненные ответы для анализа
-        duration = response_time - self.start_time
-        self.rejected_responses.append(Response(
-            status=response.status,
-            request_headers=request.headers,
-            response_headers=response.headers,
-            response=None,
-            duration=duration,
-            url=response.url
-        ))
-    
-    def _check_completion(self):
-        """Проверяет, завершены ли все хандлеры"""
-        if self.completion_future.done():
-            return
-            
-        # Проверяем каждый хандлер
-        all_completed = True
-        for handler in self.handlers:
-            if handler.slug in self.handler_errors:
-                continue  # Уже завершен с ошибкой
-                
-            # Если хандлер достиг лимита ответов, он завершен
-            if handler.max_responses is not None and len(self.handler_results[handler.slug]) >= handler.max_responses:
-                continue
-            
-            # Если хандлер еще не завершен, продолжаем ожидание
-            all_completed = False
-            break
-        
-        # Если все хандлеры достигли своих лимитов, завершаем работу
-        if all_completed:
-            self.api._logger.info(CFG.LOG_ALL_HANDLERS_COMPLETED)
-            self._complete_all_handlers()
-    
-    def _complete_all_handlers(self):
-        """Завершает работу всех хандлеров"""
-        if self.completion_future.done():
-            return
-            
-        # Формируем результат
-        result = []
-        current_time = time.time()
-        
-        for handler in self.handlers:
-            if handler.slug in self.handler_errors:
-                result.append(self.handler_errors[handler.slug])
-            elif self.handler_results[handler.slug]:
-                duration = current_time - self.start_time
-                result.append(HandlerSearchSuccess(
-                    responses=self.handler_results[handler.slug],
-                    duration=duration,
-                    handler_slug=handler.slug
-                ))
-            else:
-                # Хандлер не получил ни одного ответа
-                duration = current_time - self.start_time
-                error = HandlerSearchFailed(
-                    rejected_responses=self.rejected_responses,
-                    duration=duration,
-                    handler_slug=handler.slug
-                )
-                result.append(error)
-        
-        self.completion_future.set_result(result)
-    
-    async def wait_for_results(self, timeout: float) -> List[Union[HandlerSearchSuccess, HandlerSearchFailed]]:
-        """Ожидает результатов всех хандлеров с таймаутом"""
-        # Устанавливаем таймаут
-        self.timeout_task = asyncio.create_task(asyncio.sleep(timeout))
-        
-        # Ожидаем либо завершения всех хандлеров, либо таймаута
-        done, _pending = await asyncio.wait(
-            [self.completion_future, self.timeout_task],
-            return_when=asyncio.FIRST_COMPLETED
-        )
-        
-        if self.completion_future in done:
-            # Все хандлеры завершились
-            self.timeout_task.cancel()
-            return await self.completion_future
-        else:
-            # Таймаут
-            duration = time.time() - self.start_time
-            self.api._logger.warning(CFG.LOG_TIMEOUT_REACHED.format(base_url=self.base_url, duration=duration))
-            
-            # Формируем результат с тем, что успели получить
-            result = []
-            for handler in self.handlers:
-                if self.handler_results[handler.slug]:
-                    result.append(HandlerSearchSuccess(
-                        responses=self.handler_results[handler.slug],
-                        duration=duration,
-                        handler_slug=handler.slug
-                    ))
-                else:
-                    result.append(HandlerSearchFailed(
-                        rejected_responses=self.rejected_responses,
-                        duration=duration,
-                        handler_slug=handler.slug
-                    ))
-
-            return result
 
 
 @beartype
@@ -239,7 +25,7 @@ class Page:
         """Создание и модификация объекта запроса"""
         # Создаем объект Request если передана строка
         if isinstance(request, str):
-            default_headers = {"Content-Type": CFG.DEFAULT_CONTENT_TYPE}
+            default_headers = {"Content-Type": CFG.PARAMETERS.DEFAULT_CONTENT_TYPE}
             request_obj = Request(
                 url=request, 
                 headers=default_headers,
@@ -260,9 +46,9 @@ class Page:
                 if modified_request.method != HttpMethod.ANY:
                     return modified_request
                 else:
-                    self.API._logger.warning(CFG.LOG_REQUEST_MODIFIER_ANY_TYPE)
+                    self.API._logger.warning(CFG.LOGS.REQUEST_MODIFIER_ANY_TYPE)
             else:
-                self.API._logger.warning(f"{CFG.LOG_REQUEST_MODIFIER_FAILED_TYPE}: {type(modified_request)}")
+                self.API._logger.warning(f"{CFG.LOGS.REQUEST_MODIFIER_FAILED_TYPE}: {type(modified_request)}")
         
         return request_obj
 
@@ -280,7 +66,7 @@ class Page:
             - Для множественных хандлеров: List[Union[HandlerSearchSuccess, HandlerSearchFailed]]]
         """
         if not self._page:
-            raise RuntimeError(CFG.LOG_PAGE_NOT_AVAILABLE)
+            raise RuntimeError(CFG.LOGS.PAGE_NOT_AVAILABLE)
             
         start_time = time.time()
         
@@ -298,7 +84,7 @@ class Page:
                     duplicate_slugs.append(slug)
                 else:
                     seen.add(slug)
-            raise ValueError(CFG.ERROR_DUPLICATE_HANDLER_SLUGS.format(duplicate_slugs=duplicate_slugs))
+            raise ValueError(CFG.ERRORS.DUPLICATE_HANDLER_SLUGS.format(duplicate_slugs=duplicate_slugs))
 
         # Новая логика для множественных хандлеров
         multi_interceptor = MultiRequestInterceptor(self.API, handlers, url, start_time)
@@ -314,7 +100,7 @@ class Page:
             if wait_selector:
                 await self._page.wait_for_selector(
                     wait_selector, 
-                    timeout=self.API.timeout * CFG.MILLISECONDS_MULTIPLIER
+                    timeout=self.API.timeout * CFG.PARAMETERS.MILLISECONDS_MULTIPLIER
                 )
             
             # Ждем результатов всех хандлеров
@@ -336,7 +122,7 @@ class Page:
         """
         
         if not self._page:
-            raise RuntimeError(CFG.LOG_PAGE_NOT_AVAILABLE)
+            raise RuntimeError(CFG.LOGS.PAGE_NOT_AVAILABLE)
 
         start_time = time.time()
         
@@ -357,14 +143,14 @@ class Page:
 
         try:
             # JavaScript-код для выполнения запроса с возвратом статуса и заголовков
-            script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), CFG.INJECT_FETCH_JS_FILE)
+            script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), CFG.PARAMETERS.INJECT_FETCH_JS_FILE)
 
             def load_inject_script():
                 try:
                     with open(script_path, "r") as file:
                         return file.read()
                 except FileNotFoundError:
-                    raise FileNotFoundError(f"{CFG.ERROR_JS_FILE_NOT_FOUND}: {script_path}")
+                    raise FileNotFoundError(f"{CFG.ERRORS.JS_FILE_NOT_FOUND}: {script_path}")
 
             # Load the script once
             script = load_inject_script()
@@ -385,8 +171,8 @@ class Page:
             # Возвращаем объект ошибки
             error_info = result.get('error', {})
             return NetworkError(
-                name=error_info.get('name', CFG.ERROR_UNKNOWN),
-                message=error_info.get('message', CFG.ERROR_MESSAGE_UNKNOWN),
+                name=error_info.get('name', CFG.ERRORS.UNKNOWN),
+                message=error_info.get('message', CFG.ERRORS.MESSAGE_UNKNOWN),
                 details=error_info.get('details', {}),
                 timestamp=error_info.get('timestamp', ''),
                 duration=duration
@@ -403,7 +189,7 @@ class Page:
         # Обрабатываем Set-Cookie заголовки вручную
         if 'set-cookie' in response_data['headers']:
             set_cookie_header = response_data['headers']['set-cookie']
-            self.API._logger.debug(f"{CFG.LOG_PROCESSING_COOKIE}: {set_cookie_header}")
+            self.API._logger.debug(f"{CFG.LOGS.PROCESSING_COOKIE}: {set_cookie_header}")
             
             # Устанавливаем куки через Playwright API
             try:
@@ -422,13 +208,13 @@ class Page:
                                 'name': name.strip(),
                                 'value': value.strip(),
                                 'domain': domain,
-                                'path': CFG.DEFAULT_COOKIE_PATH
+                                'path': '/'
                             }])
-                            self.API._logger.debug(f"{CFG.LOG_COOKIE_SET}: {name.strip()}={value.strip()}")
+                            self.API._logger.debug(f"{CFG.LOGS.COOKIE_SET}: {name.strip()}={value.strip()}")
             except Exception as e:
-                self.API._logger.warning(f"{CFG.LOG_COOKIE_PROCESSING_FAILED}: {e}")
+                self.API._logger.warning(f"{CFG.LOGS.COOKIE_PROCESSING_FAILED}: {e}")
         
-        self.API._logger.info(f"{CFG.LOG_INJECT_FETCH_COMPLETED} {duration:.3f}s")
+        self.API._logger.info(f"{CFG.LOGS.INJECT_FETCH_COMPLETED} {duration:.3f}s")
         
         return Response(
             status=response_data['status'],
@@ -444,6 +230,6 @@ class Page:
         if self._page:
             await self._page.close()
             self._page = None
-            self.API._logger.info(CFG.LOG_PAGE_CLOSED)
+            self.API._logger.info(CFG.LOGS.PAGE_CLOSED)
         else:
-            self.API._logger.info(CFG.LOG_NO_PAGE_TO_CLOSE)
+            self.API._logger.info(CFG.ERRORS.NO_PAGE_TO_CLOSE)

@@ -38,7 +38,7 @@ class BaseAPI:
 
         self._logger = logging.getLogger(self.__class__.__name__)
         handler = logging.StreamHandler()
-        formatter = logging.Formatter('[%(asctime)s] %(levelname)s %(name)s: %(message)s')
+        formatter = logging.Formatter(CFG.PARAMETERS.LOG_FORMAT)
         handler.setFormatter(formatter)
         if not self._logger.hasHandlers():
             self._logger.addHandler(handler)
@@ -98,9 +98,9 @@ class BaseAPI:
     @timeout.setter
     def timeout(self, value: float) -> None:
         if value <= 0:
-            raise ValueError(CFG.ERROR_TIMEOUT_POSITIVE)
-        if value > CFG.MAX_TIMEOUT_SECONDS:
-            raise ValueError(CFG.ERROR_TIMEOUT_TOO_LARGE)
+            raise ValueError(CFG.ERRORS.TIMEOUT_POSITIVE)
+        if value > CFG.PARAMETERS.MAX_TIMEOUT_SECONDS:
+            raise ValueError(CFG.ERRORS.TIMEOUT_TOO_LARGE)
         self._timeout = value
     
     @property
@@ -137,10 +137,10 @@ class BaseAPI:
         if not self._bcontext:
             await self.new_session(include_browser=True)
         
-        self._logger.info(CFG.LOG_NEW_PAGE_CREATING)
+        self._logger.info(CFG.LOGS.NEW_PAGE_CREATING)
         page = await self._bcontext.new_page()
-        self._logger.info(CFG.LOG_NEW_PAGE_CREATED)
-        
+        self._logger.info(CFG.LOGS.NEW_PAGE_CREATED)
+
         return Page(self, page)
 
     async def new_session(self, include_browser: bool = True) -> None:
@@ -148,18 +148,18 @@ class BaseAPI:
 
         if include_browser:
             prox = parse_proxy(self.proxy, self.trust_env, self._logger)
-            self._logger.info(f"{CFG.LOG_OPENING_BROWSER}: {CFG.LOG_SYSTEM_PROXY if prox and not self.proxy else prox}")
+            self._logger.info(f"{CFG.LOGS.OPENING_BROWSER}: {CFG.LOGS.SYSTEM_PROXY if prox and not self.proxy else prox}")
             self._browser = await AsyncCamoufox(headless=not self.debug, proxy=prox, geoip=True).__aenter__()
             self._bcontext = await self._browser.new_context()
-            self._logger.info(CFG.LOG_BROWSER_CONTEXT_OPENED)
+            self._logger.info(CFG.LOGS.BROWSER_CONTEXT_OPENED)
             if self.start_func:
-                self._logger.info(f"{CFG.LOG_START_FUNC_EXECUTING}: {self.start_func.__name__}")
+                self._logger.info(f"{CFG.LOGS.START_FUNC_EXECUTING}: {self.start_func.__name__}")
                 if not asyncio.iscoroutinefunction(self.start_func):
                     self.start_func(self)
                 else:
                     await self.start_func(self)
-                self._logger.info(f"{CFG.LOG_START_FUNC_EXECUTING} {self.start_func.__name__} {CFG.LOG_START_FUNC_EXECUTED}")
-            self._logger.info(CFG.LOG_NEW_SESSION_CREATED)
+                self._logger.info(f"{CFG.LOGS.START_FUNC_EXECUTING} {self.start_func.__name__} {CFG.LOGS.START_FUNC_EXECUTED}")
+            self._logger.info(CFG.LOGS.NEW_SESSION_CREATED)
 
     async def close(
         self,
@@ -174,10 +174,10 @@ class BaseAPI:
             to_close.append("bcontext")
             to_close.append("browser")
 
-        self._logger.info(f"{CFG.LOG_PREPARING_TO_CLOSE}: {to_close if to_close else 'nothing'}")
+        self._logger.info(f"{CFG.LOGS.PREPARING_TO_CLOSE}: {to_close if to_close else CFG.LOGS.NOTHING}")
 
         if not to_close:
-            self._logger.warning(CFG.LOG_NO_CONNECTIONS)
+            self._logger.warning(CFG.LOGS.NO_CONNECTIONS)
             return
 
         checks = {
@@ -188,18 +188,18 @@ class BaseAPI:
         for name in to_close:
             attr = getattr(self, f"_{name}", None)
             if checks[name](attr):
-                self._logger.info(f"{CFG.LOG_CLOSING_CONNECTION} {name} connection...")
+                self._logger.info(f"{CFG.LOGS.CLOSING_CONNECTION} {name} connection...")
                 try:
                     if name == "browser":
                         await attr.__aexit__(None, None, None)
                     elif name in ["bcontext"]:
                         await attr.close()
                     else:
-                        raise ValueError(f"{CFG.ERROR_UNKNOWN_CONNECTION_TYPE}: {name}")
-                    
+                        raise ValueError(f"{CFG.ERRORS.UNKNOWN_CONNECTION_TYPE}: {name}")
+
                     setattr(self, f"_{name}", None)
-                    self._logger.info(CFG.LOG_CONNECTION_CLOSED_SUCCESS.format(connection_name=name, status=CFG.LOG_CONNECTION_CLOSED))
+                    self._logger.info(CFG.LOGS.CONNECTION_CLOSED_SUCCESS.format(connection_name=name, status=CFG.LOGS.CONNECTION_CLOSED))
                 except Exception as e:
-                    self._logger.error(f"{CFG.LOG_ERROR_CLOSING} {name}: {e}")
+                    self._logger.error(f"{CFG.ERRORS.BROWSER_COMPONENT_CLOSING} {name}: {e}")
             else:
-                self._logger.warning(CFG.LOG_CONNECTION_NOT_OPEN_WARNING.format(connection_name=name, status=CFG.LOG_CONNECTION_NOT_OPEN))
+                self._logger.warning(CFG.LOGS.CONNECTION_NOT_OPEN_WARNING.format(connection_name=name, status=CFG.LOGS.CONNECTION_NOT_OPEN))

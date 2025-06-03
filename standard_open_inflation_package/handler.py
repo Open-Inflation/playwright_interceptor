@@ -117,25 +117,25 @@ class Handler:
         # Проверяем тип контента на основе реального content-type из response
         match self.handler_type:
             case "json":
-                return ctype in CFG.JSON_EXTENSIONS
+                return ctype in CFG.NETWORK.JSON_EXTENSIONS
             case "js":
-                return ctype in CFG.JS_EXTENSIONS
+                return ctype in CFG.NETWORK.JS_EXTENSIONS
             case "css":
-                return ctype in CFG.CSS_EXTENSIONS
+                return ctype in CFG.NETWORK.CSS_EXTENSIONS
             case "image":
-                return ctype in CFG.IMAGE_EXTENSIONS
+                return ctype in CFG.NETWORK.IMAGE_EXTENSIONS
             case "video":
-                return ctype in CFG.VIDEO_EXTENSIONS
+                return ctype in CFG.NETWORK.VIDEO_EXTENSIONS
             case "audio":
-                return ctype in CFG.AUDIO_EXTENSIONS
+                return ctype in CFG.NETWORK.AUDIO_EXTENSIONS
             case "font":
-                return ctype in CFG.FONT_EXTENSIONS
+                return ctype in CFG.NETWORK.FONT_EXTENSIONS
             case "application":
-                return ctype in CFG.APPLICATION_EXTENSIONS
+                return ctype in CFG.NETWORK.APPLICATION_EXTENSIONS
             case "archive":
-                return ctype in CFG.ARCHIVE_EXTENSIONS
+                return ctype in CFG.NETWORK.ARCHIVE_EXTENSIONS
             case "text":
-                return ctype in CFG.TEXT_EXTENSIONS
+                return ctype in CFG.NETWORK.TEXT_EXTENSIONS
             case "any":
                 # Любой первый запрос
                 return True
@@ -143,7 +143,7 @@ class Handler:
                 # Не захватываем ничего
                 return False
             case _:
-                raise TypeError(CFG.ERROR_UNKNOWN_HANDLER_TYPE.format(handler_type=self.handler_type))
+                raise TypeError(CFG.ERRORS.UNKNOWN_HANDLER_TYPE.format(handler_type=self.handler_type))
 
 
 @beartype
@@ -155,10 +155,10 @@ class HandlerSearchSuccess:
     handler_slug: str = 'unknown'
     
     def __str__(self):
-        return CFG.HANDLER_SUCCESS_MESSAGE.format(response_count=len(self.responses), handler_slug=self.handler_slug)
+        return f"HandlerSearchSuccess: Found {len(self.responses)} responses for `{self.handler_slug}` handler."
     
     def __repr__(self):
-        return CFG.HANDLER_SUCCESS_REPR.format(duration=self.duration, response_count=len(self.responses))
+        return f"HandlerSearchSuccess(duration={self.duration:.1f}, response_count={len(self.responses)})"
 
 @beartype
 @dataclass(frozen=True)
@@ -169,7 +169,7 @@ class HandlerSearchFailed:
     handler_slug: str = 'unknown'
     
     def __str__(self):
-        return CFG.HANDLER_FAILED_MESSAGE.format(handler_slug=self.handler_slug, rejected_count=len(self.rejected_responses))
+        return f"HandlerSearchFailedError: Not found suitable response for `{self.handler_slug}` handler. Rejected {len(self.rejected_responses)} responses."
 
     def __repr__(self):
-        return CFG.HANDLER_FAILED_REPR.format(duration=self.duration, rejected_count=len(self.rejected_responses))
+        return f"HandlerSearchFailedError(duration={self.duration:.1f}, rejected_count={len(self.rejected_responses)})"

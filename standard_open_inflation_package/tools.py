@@ -5,6 +5,7 @@ from beartype.typing import Dict, Union
 from beartype import beartype
 from . import config as CFG
 
+
 @beartype
 def get_env_proxy() -> Union[str, None]:
     """
@@ -16,36 +17,36 @@ def get_env_proxy() -> Union[str, None]:
 
 @beartype
 def parse_proxy(proxy_str: Union[str, None], trust_env: bool, logger: logging.Logger) -> Union[Dict[str, str], None]:
-    logger.debug(CFG.LOG_PARSING_PROXY.format(proxy_string=proxy_str))
+    logger.debug(CFG.LOGS.PARSING_PROXY.format(proxy_string=proxy_str))
 
     if not proxy_str:
         if trust_env:
-            logger.debug(CFG.LOG_PROXY_NOT_PROVIDED)
+            logger.debug(CFG.LOGS.PROXY_NOT_PROVIDED)
             proxy_str = get_env_proxy()
         
         if not proxy_str:
-            logger.info(CFG.LOG_NO_PROXY_FOUND)
+            logger.info(CFG.LOGS.NO_PROXY_FOUND)
             return None
         else:
-            logger.info(CFG.LOG_PROXY_FOUND_IN_ENV)
+            logger.info(CFG.LOGS.PROXY_FOUND_IN_ENV)
 
     # Example: user:pass@host:port or just host:port
-    match = re.match(CFG.PROXY, proxy_str)
+    match = re.match(CFG.NETWORK.PROXY, proxy_str)
     
     proxy_dict = {}
     if not match:
-        logger.warning(CFG.LOG_PROXY_PATTERN_MISMATCH)
+        logger.warning(CFG.ERRORS.PROXY_PATTERN_MISMATCH)
         proxy_dict['server'] = proxy_str
         
-        if not proxy_str.startswith(CFG.PROXY_HTTP_SCHEMES[0]) and not proxy_str.startswith(CFG.PROXY_HTTP_SCHEMES[1]):
-            logger.warning(CFG.LOG_PROXY_MISSING_PROTOCOL)
-            proxy_dict['server'] = f"{CFG.DEFAULT_HTTP_SCHEME}{proxy_str}"
+        if not proxy_str.startswith(CFG.NETWORK.PROXY_HTTP_SCHEMES[0]) and not proxy_str.startswith(CFG.NETWORK.PROXY_HTTP_SCHEMES[1]):
+            logger.warning(CFG.ERRORS.PROXY_MISSING_PROTOCOL)
+            proxy_dict['server'] = f"{CFG.NETWORK.DEFAULT_HTTP_SCHEME}{proxy_str}"
         
-        logger.info(CFG.LOG_PROXY_PARSED_BASIC)
+        logger.info(CFG.LOGS.PROXY_PARSED_BASIC)
         return proxy_dict
     else:
         match_dict = match.groupdict()
-        proxy_dict['server'] = f"{match_dict['scheme'] or CFG.DEFAULT_HTTP_SCHEME}{match_dict['host']}"
+        proxy_dict['server'] = f"{match_dict['scheme'] or CFG.NETWORK.DEFAULT_HTTP_SCHEME}{match_dict['host']}"
         if match_dict['port']:
             proxy_dict['server'] += f":{match_dict['port']}"
         
@@ -53,10 +54,9 @@ def parse_proxy(proxy_str: Union[str, None], trust_env: bool, logger: logging.Lo
             if match_dict[key]:
                 proxy_dict[key] = match_dict[key]
         
-        credential_status = CFG.TEXT_WITH if 'username' in proxy_dict else CFG.TEXT_WITHOUT
-        logger.info(CFG.LOG_PROXY_WITH_CREDENTIALS.format(credential_status=credential_status))
+        logger.info(CFG.LOGS.PROXY_WITH_CREDENTIALS if 'username' in proxy_dict else CFG.LOGS.PROXY_WITHOUT_CREDENTIALS)
         
-        logger.info(CFG.LOG_PROXY_PARSED_REGEX)
+        logger.info(CFG.LOGS.PROXY_PARSED_REGEX)
         return proxy_dict
 
 

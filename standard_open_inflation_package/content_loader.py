@@ -80,7 +80,7 @@ def parse_response_data(data: Union[str, bytes], content_type: str) -> Union[dic
     """
     pct = parse_content_type(content_type)
 
-    if pct['content_type'] in CFG.JSON_EXTENSIONS:
+    if pct['content_type'] in CFG.NETWORK.JSON_EXTENSIONS:
         try:
             # Convert bytes to string if needed
             if isinstance(data, bytes):
@@ -97,12 +97,12 @@ def parse_response_data(data: Union[str, bytes], content_type: str) -> Union[dic
             return data.decode(pct['charset'], errors='replace') if isinstance(data, bytes) else data
     
     for types in [
-        CFG.IMAGE_EXTENSIONS,
-        CFG.VIDEO_EXTENSIONS,
-        CFG.AUDIO_EXTENSIONS,
-        CFG.FONT_EXTENSIONS,
-        CFG.APPLICATION_EXTENSIONS,
-        CFG.ARCHIVE_EXTENSIONS
+        CFG.NETWORK.IMAGE_EXTENSIONS,
+        CFG.NETWORK.VIDEO_EXTENSIONS,
+        CFG.NETWORK.AUDIO_EXTENSIONS,
+        CFG.NETWORK.FONT_EXTENSIONS,
+        CFG.NETWORK.APPLICATION_EXTENSIONS,
+        CFG.NETWORK.ARCHIVE_EXTENSIONS
     ]:
         if pct['content_type'] in types:
             # Для файлов создаем BytesIO объект
