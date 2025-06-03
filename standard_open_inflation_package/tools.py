@@ -16,32 +16,32 @@ def get_env_proxy() -> Union[str, None]:
 
 @beartype
 def parse_proxy(proxy_str: Union[str, None], trust_env: bool, logger: logging.Logger) -> Union[Dict[str, str], None]:
-    logger.debug(f"Parsing proxy string: {proxy_str}")
+    logger.debug(CFG.LOG_PARSING_PROXY.format(proxy_string=proxy_str))
 
     if not proxy_str:
         if trust_env:
-            logger.debug("Proxy string not provided, checking environment variables for HTTP(S)_PROXY")
+            logger.debug(CFG.LOG_PROXY_NOT_PROVIDED)
             proxy_str = get_env_proxy()
         
         if not proxy_str:
-            logger.info("No proxy string found, returning None")
+            logger.info(CFG.LOG_NO_PROXY_FOUND)
             return None
         else:
-            logger.info(f"Proxy string found in environment variables")
+            logger.info(CFG.LOG_PROXY_FOUND_IN_ENV)
 
     # Example: user:pass@host:port or just host:port
     match = re.match(CFG.PROXY, proxy_str)
     
     proxy_dict = {}
     if not match:
-        logger.warning(f"Proxy string did not match expected pattern, using basic formating")
+        logger.warning(CFG.LOG_PROXY_PATTERN_MISMATCH)
         proxy_dict['server'] = proxy_str
         
         if not proxy_str.startswith(CFG.PROXY_HTTP_SCHEMES[0]) and not proxy_str.startswith(CFG.PROXY_HTTP_SCHEMES[1]):
-            logger.warning("Proxy string missing protocol, prepending 'http://'")
+            logger.warning(CFG.LOG_PROXY_MISSING_PROTOCOL)
             proxy_dict['server'] = f"{CFG.DEFAULT_HTTP_SCHEME}{proxy_str}"
         
-        logger.info(f"Proxy parsed as basic")
+        logger.info(CFG.LOG_PROXY_PARSED_BASIC)
         return proxy_dict
     else:
         match_dict = match.groupdict()
@@ -53,9 +53,10 @@ def parse_proxy(proxy_str: Union[str, None], trust_env: bool, logger: logging.Lo
             if match_dict[key]:
                 proxy_dict[key] = match_dict[key]
         
-        logger.info(f"Proxy WITH{'OUT' if 'username' not in proxy_dict else ''} credentials")
+        credential_status = CFG.TEXT_WITH if 'username' in proxy_dict else CFG.TEXT_WITHOUT
+        logger.info(CFG.LOG_PROXY_WITH_CREDENTIALS.format(credential_status=credential_status))
         
-        logger.info(f"Proxy parsed as regex")
+        logger.info(CFG.LOG_PROXY_PARSED_REGEX)
         return proxy_dict
 
 

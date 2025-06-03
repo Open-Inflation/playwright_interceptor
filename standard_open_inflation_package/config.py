@@ -17,9 +17,11 @@ DEFAULT_COOKIE_PATH = "/"
 ERROR_UNKNOWN = "UnknownError"
 ERROR_MESSAGE_UNKNOWN = "Unknown error occurred"
 ERROR_TIMEOUT_POSITIVE = "Timeout must be positive"
-ERROR_TIMEOUT_TOO_LARGE = "Timeout too large (max 3600 seconds)"
+ERROR_TIMEOUT_TOO_LARGE = f"Timeout too large (max {MAX_TIMEOUT_SECONDS} seconds)"
 ERROR_UNKNOWN_CONNECTION_TYPE = "Unknown connection type"
 ERROR_JS_FILE_NOT_FOUND = "JavaScript file not found at"
+ERROR_DUPLICATE_HANDLER_SLUGS = "Обнаружены дублирующиеся slug'и в handlers: {duplicate_slugs}"
+ERROR_UNKNOWN_HANDLER_TYPE = "Unknown handler type: {handler_type}"
 
 # Log messages
 LOG_NEW_PAGE_CREATING = "Creating a new page in the browser context..."
@@ -47,6 +49,36 @@ LOG_REQUEST_MODIFIER_FAILED_TYPE = "request_modifier_func returned non-Request o
 LOG_REQUEST_MODIFIER_ANY_TYPE = "Request method ANY - is not a specific type."
 LOG_PAGE_NOT_AVAILABLE = "Page is not available"
 LOG_FAILED_TO_GET_RESPONSE_BODY = "Failed to get response body for"
+
+# Handler log messages
+LOG_HANDLER_WILL_CAPTURE = "Handler {handler_type} will capture: {url}"
+LOG_HANDLER_REJECTED = "Handler {handler_type} rejected: {url} (content-type: {content_type})"
+LOG_ALL_HANDLERS_REJECTED = "All handlers rejected: {url}"
+LOG_HANDLER_CAPTURED_RESPONSE = "Handler {handler_type} captured response from {url} ({current_count}/{max_responses})"
+LOG_FAILED_TO_PROCESS_RESPONSE = "Failed to process response for handlers {handler_list} from {url}: {error}"
+LOG_ALL_HANDLERS_COMPLETED = "All handlers reached their max_responses limits, completing..."
+LOG_TIMEOUT_REACHED = "Timeout reached for multi-handler request to {base_url}. Duration: {duration:.3f}s"
+
+# Proxy log messages
+LOG_PARSING_PROXY = "Parsing proxy string: {proxy_string}"
+LOG_PROXY_NOT_PROVIDED = "Proxy string not provided, checking environment variables for HTTP(S)_PROXY"
+LOG_NO_PROXY_FOUND = "No proxy string found, returning None"
+LOG_PROXY_FOUND_IN_ENV = "Proxy string found in environment variables"
+LOG_PROXY_PATTERN_MISMATCH = "Proxy string did not match expected pattern, using basic formating"
+LOG_PROXY_MISSING_PROTOCOL = "Proxy string missing protocol, prepending 'http://'"
+LOG_PROXY_PARSED_BASIC = "Proxy parsed as basic"
+LOG_PROXY_WITH_CREDENTIALS = "Proxy {credential_status} credentials"
+LOG_PROXY_PARSED_REGEX = "Proxy parsed as regex"
+
+# Connection log messages
+LOG_CONNECTION_CLOSED_SUCCESS = "The {connection_name} {status}"
+LOG_CONNECTION_NOT_OPEN_WARNING = "The {connection_name} {status}"
+
+# Text constants
+TEXT_UNLIMITED = "unlimited"
+TEXT_UNKNOWN = "unknown"
+TEXT_WITH = "WITH"
+TEXT_WITHOUT = "WITHOUT"
 
 # File extensions mapping
 IMAGE_EXTENSIONS = {
@@ -173,9 +205,11 @@ ARCHIVE_MIME_TYPES = [
     'application/x-cab',
 ]
 
-# Default file extensions
-DEFAULT_IMAGE_EXTENSION = '.img'
-DEFAULT_IMAGE_NAME = "image"
-
 # Proxy constants
 PROXY_HTTP_SCHEMES = ['http://', 'https://']
+
+# Handler success/failure messages
+HANDLER_SUCCESS_MESSAGE = "HandlerSearchSuccess: Found {response_count} responses for `{handler_slug}` handler."
+HANDLER_SUCCESS_REPR = "HandlerSearchSuccess(duration={duration:.1f}, response_count={response_count})"
+HANDLER_FAILED_MESSAGE = "HandlerSearchFailedError: Not found suitable response for `{handler_slug}` handler. Rejected {rejected_count} responses."
+HANDLER_FAILED_REPR = "HandlerSearchFailedError(duration={duration:.1f}, rejected_count={rejected_count})"

@@ -198,8 +198,8 @@ class BaseAPI:
                         raise ValueError(f"{CFG.ERROR_UNKNOWN_CONNECTION_TYPE}: {name}")
                     
                     setattr(self, f"_{name}", None)
-                    self._logger.info(f"The {name} {CFG.LOG_CONNECTION_CLOSED}")
+                    self._logger.info(CFG.LOG_CONNECTION_CLOSED_SUCCESS.format(connection_name=name, status=CFG.LOG_CONNECTION_CLOSED))
                 except Exception as e:
                     self._logger.error(f"{CFG.LOG_ERROR_CLOSING} {name}: {e}")
             else:
-                self._logger.warning(f"The {name} {CFG.LOG_CONNECTION_NOT_OPEN}")
+                self._logger.warning(CFG.LOG_CONNECTION_NOT_OPEN_WARNING.format(connection_name=name, status=CFG.LOG_CONNECTION_NOT_OPEN))

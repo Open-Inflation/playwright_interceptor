@@ -143,7 +143,7 @@ class Handler:
                 # Не захватываем ничего
                 return False
             case _:
-                raise TypeError(f"Unknown handler type: {self.handler_type}")
+                raise TypeError(CFG.ERROR_UNKNOWN_HANDLER_TYPE.format(handler_type=self.handler_type))
 
 
 @beartype
@@ -155,10 +155,10 @@ class HandlerSearchSuccess:
     handler_slug: str = 'unknown'
     
     def __str__(self):
-        return f"HandlerSearchSuccess: Found {len(self.responses)} responses for `{self.handler_slug}` handler."
+        return CFG.HANDLER_SUCCESS_MESSAGE.format(response_count=len(self.responses), handler_slug=self.handler_slug)
     
     def __repr__(self):
-        return f"HandlerSearchSuccess(duration={self.duration:.1f}, response_count={len(self.responses)})"
+        return CFG.HANDLER_SUCCESS_REPR.format(duration=self.duration, response_count=len(self.responses))
 
 @beartype
 @dataclass(frozen=True)
@@ -169,7 +169,7 @@ class HandlerSearchFailed:
     handler_slug: str = 'unknown'
     
     def __str__(self):
-        return f"HandlerSearchFailedError: Not found suitable response for `{self.handler_slug}` handler. Rejected {len(self.rejected_responses)} responses."
+        return CFG.HANDLER_FAILED_MESSAGE.format(handler_slug=self.handler_slug, rejected_count=len(self.rejected_responses))
 
     def __repr__(self):
-        return f"HandlerSearchFailedError(duration={self.duration:.1f}, rejected_count={len(self.rejected_responses)})"
+        return CFG.HANDLER_FAILED_REPR.format(duration=self.duration, rejected_count=len(self.rejected_responses))

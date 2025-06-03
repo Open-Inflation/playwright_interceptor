@@ -65,16 +65,16 @@ class MultiRequestInterceptor:
                 
             if handler.should_capture(mock_response, self.base_url):
                 capturing_handlers.append(handler)
-                self.api._logger.debug(f"Handler {handler.handler_type} will capture: {response.url}")
+                self.api._logger.debug(CFG.LOG_HANDLER_WILL_CAPTURE.format(handler_type=handler.handler_type, url=response.url))
             else:
-                self.api._logger.debug(f"Handler {handler.handler_type} rejected: {response.url} (content-type: {response.headers.get('content-type', 'unknown')})")
+                self.api._logger.debug(CFG.LOG_HANDLER_REJECTED.format(handler_type=handler.handler_type, url=response.url, content_type=response.headers.get('content-type', CFG.TEXT_UNKNOWN)))
         
         # Если есть хендлеры для захвата, обрабатываем ответ один раз
         if capturing_handlers:
             await self._handle_captured_response(capturing_handlers, response, request, response_time)
         else:
             self._handle_rejected_response(response, request, response_time)
-            self.api._logger.debug(f"All handlers rejected: {response.url}")
+            self.api._logger.debug(CFG.LOG_ALL_HANDLERS_REJECTED.format(url=response.url))
         
         # Проверяем, завершены ли все хандлеры
         self._check_completion()
@@ -105,11 +105,22 @@ class MultiRequestInterceptor:
                 # Добавляем результат к хандлеру
                 self.handler_results[handler.slug].append(result)
                 
-                self.api._logger.info(f"Handler {handler.handler_type} captured response from {response.url} ({len(self.handler_results[handler.slug])}/{handler.max_responses or 'unlimited'})")
+                max_responses_text = handler.max_responses or CFG.TEXT_UNLIMITED
+                self.api._logger.info(CFG.LOG_HANDLER_CAPTURED_RESPONSE.format(
+                    handler_type=handler.handler_type,
+                    url=response.url,
+                    current_count=len(self.handler_results[handler.slug]),
+                    max_responses=max_responses_text
+                ))
                 
         except Exception as e:
             # Если произошла ошибка, логируем для всех хендлеров
-            self.api._logger.warning(f"Failed to process response for handlers {', '.join(handler.handler_type for handler in handlers)} from {response.url}: {e}")
+            handler_types = ', '.join(handler.handler_type for handler in handlers)
+            self.api._logger.warning(CFG.LOG_FAILED_TO_PROCESS_RESPONSE.format(
+                handler_list=handler_types,
+                url=response.url,
+                error=e
+            ))
 
     def _handle_rejected_response(self, response, request, response_time: float):
         """Обрабатывает отклоненный response"""
@@ -145,7 +156,7 @@ class MultiRequestInterceptor:
         
         # Если все хандлеры достигли своих лимитов, завершаем работу
         if all_completed:
-            self.api._logger.info(f"All handlers reached their max_responses limits, completing...")
+            self.api._logger.info(CFG.LOG_ALL_HANDLERS_COMPLETED)
             self._complete_all_handlers()
     
     def _complete_all_handlers(self):
@@ -197,7 +208,7 @@ class MultiRequestInterceptor:
         else:
             # Таймаут
             duration = time.time() - self.start_time
-            self.api._logger.warning(f"Timeout reached for multi-handler request to {self.base_url}. Duration: {duration:.3f}s")
+            self.api._logger.warning(CFG.LOG_TIMEOUT_REACHED.format(base_url=self.base_url, duration=duration))
             
             # Формируем результат с тем, что успели получить
             result = []
@@ -287,7 +298,7 @@ class Page:
                     duplicate_slugs.append(slug)
                 else:
                     seen.add(slug)
-            raise ValueError(f"Обнаружены дублирующиеся slug'и в handlers: {duplicate_slugs}")
+            raise ValueError(CFG.ERROR_DUPLICATE_HANDLER_SLUGS.format(duplicate_slugs=duplicate_slugs))
 
         # Новая логика для множественных хандлеров
         multi_interceptor = MultiRequestInterceptor(self.API, handlers, url, start_time)
