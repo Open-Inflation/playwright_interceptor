@@ -1,10 +1,105 @@
 import urllib.parse
 from beartype import beartype
-from beartype.typing import Union, Optional, Dict
+from beartype.typing import Union, Optional, Dict, List
 from .tools import parse_content_type
 from enum import Enum
 from io import BytesIO
 from dataclasses import dataclass
+from datetime import datetime
+from . import config as CFG
+
+
+@beartype
+@dataclass(frozen=False)
+class Cookie:
+    """Класс для представления HTTP cookie с полной информацией"""
+    
+    name: str
+    value: str
+    domain: str
+    path: Optional[str] = None
+    expires: Optional[datetime] = None
+    max_age: Optional[int] = None
+    secure: bool = False
+    http_only: bool = False
+    same_site: Optional[str] = None  # None, 'Strict', 'Lax', 'None'
+    
+    def to_playwright_dict(self) -> Dict:
+        """Конвертирует Cookie в формат для Playwright API"""
+        cookie_dict: Dict = {
+            'name': self.name,
+            'value': self.value,
+        }
+        
+        if self.domain:
+            cookie_dict['domain'] = self.domain
+        if self.path:
+            cookie_dict['path'] = self.path
+        if self.expires:
+            cookie_dict['expires'] = int(self.expires.timestamp())
+        if self.max_age is not None:
+            cookie_dict['maxAge'] = self.max_age
+        if self.secure:
+            cookie_dict['secure'] = self.secure
+        if self.http_only:
+            cookie_dict['httpOnly'] = self.http_only
+        if self.same_site:
+            cookie_dict['sameSite'] = self.same_site
+            
+        return cookie_dict
+    
+    @classmethod
+    def from_playwright_dict(cls, cookie_data: Dict) -> 'Cookie':
+        """Создает Cookie из данных Playwright API"""
+        expires = None
+        if 'expires' in cookie_data and cookie_data['expires'] != -1:
+            expires = datetime.fromtimestamp(cookie_data['expires'])
+            
+        return cls(
+            name=cookie_data.get('name', ''),
+            value=cookie_data.get('value', ''),
+            domain=cookie_data.get('domain'),
+            path=cookie_data.get('path'),
+            expires=expires,
+            max_age=cookie_data.get('maxAge'),
+            secure=cookie_data.get('secure', False),
+            http_only=cookie_data.get('httpOnly', False),
+            same_site=cookie_data.get('sameSite')
+        )
+    
+    @staticmethod
+    def _parse_cookie_date(date_str: str) -> Optional[datetime]:
+        """
+        Парсит дату из Cookie в различных форматах.
+        
+        Args:
+            date_str: Строка с датой
+            
+        Returns:
+            datetime объект или None если парсинг не удался
+        """
+        # Список поддерживаемых форматов дат в cookies
+        date_formats = [
+            '%a, %d %b %Y %H:%M:%S GMT',  # RFC 1123: Wed, 21 Oct 2015 07:28:00 GMT
+            '%a, %d-%b-%Y %H:%M:%S GMT',  # RFC 1036: Wednesday, 21-Oct-15 07:28:00 GMT  
+            '%a %b %d %H:%M:%S %Y',       # ANSI C: Wed Oct 21 07:28:00 2015
+            '%a, %d %b %Y %H:%M:%S %Z',   # RFC 1123 с временной зоной
+            '%a, %d-%b-%y %H:%M:%S %Z',   # RFC 1036 с временной зоной
+        ]
+        
+        for date_format in date_formats:
+            try:
+                return datetime.strptime(date_str.strip(), date_format)
+            except ValueError:
+                continue
+                
+        return None  # Если ни один формат не подошёл
+    
+    def __str__(self) -> str:
+        return f"Cookie(name='{self.name}', value='{self.value}', domain='{self.domain}', path='{self.path}')"
+    
+    def __repr__(self) -> str:
+        return f"Cookie(name='{self.name}', value='{self.value}', domain='{self.domain}', path='{self.path}', secure={self.secure}, http_only={self.http_only})"
 
 
 class HttpMethod(Enum):
@@ -31,11 +126,11 @@ class Response:
     url: Optional[str] = None
     
     def __str__(self) -> str:
-        type_data = parse_content_type(self.response_headers.get('content-type', 'unknown'))
+        type_data = parse_content_type(self.response_headers.get('content-type', CFG.LOGS.UNKNOWN_HEADER_TYPE))
         content_type = type_data["content_type"]
         response_type = type(self.response).__name__
-        response_size = "unknown"
-        
+
+        response_size = CFG.LOGS.UNLIMITED_SIZE
         # Определяем размер ответа
         if isinstance(self.response, (dict, list)):
             response_size = f"{len(str(self.response))} chars"

@@ -6,7 +6,7 @@ Standard Open Inflation Package
 обработку cookie и множественные методы получения данных.
 """
 # Импорт основных классов из модульной структуры
-from .models import HttpMethod, Response, Request
+from .models import HttpMethod, Response, Request, Cookie
 from .browser import BaseAPI  
 from .page import Page
 
@@ -22,5 +22,6 @@ __all__ = [
     # Модели данных
     'Request',
     'Response',
-    'HttpMethod'
+    'HttpMethod',
+    'Cookie'
 ]

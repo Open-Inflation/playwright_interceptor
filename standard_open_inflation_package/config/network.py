@@ -115,17 +115,3 @@ CSS_EXTENSIONS = {
     'application/css': '.css',
     'application/x-css': '.css',
 }
-
-# Archive MIME types (для проверки архивов)
-ARCHIVE_MIME_TYPES = [
-    'application/zip',
-    'application/gzip', 
-    'application/x-rar-compressed',
-    'application/x-7z-compressed',
-    'application/x-tar',
-    'application/x-bzip2',
-    'application/x-xz',
-    'application/x-lzma',
-    'application/x-compress',
-    'application/x-cab',
-]

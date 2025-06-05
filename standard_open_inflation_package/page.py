@@ -2,16 +2,19 @@ import os
 import asyncio
 import time
 import json
+import copy
+from urllib.parse import urlparse
 from beartype import beartype
-from beartype.typing import Union, Optional, List
+from beartype.typing import Union, Optional, List, TYPE_CHECKING
 from .content_loader import parse_response_data
 from . import config as CFG
-from .models import Response, Request, HttpMethod
+from .models import Response, Request, HttpMethod, Cookie
 from .exceptions import NetworkError
 from .handler import Handler, HandlerSearchFailed, HandlerSearchSuccess
 from .direct_request_interceptor import MultiRequestInterceptor
-import copy
-from urllib.parse import urlparse
+
+if TYPE_CHECKING:
+    pass
 
 
 
@@ -20,37 +23,140 @@ class Page:
     def __init__(self, api, page):
         self.API = api
         self._page = page
-    
-    async def modify_request(self, request: Union[Request, str]) -> Request:
-        """Создание и модификация объекта запроса"""
-        # Создаем объект Request если передана строка
-        if isinstance(request, str):
-            default_headers = {"Content-Type": CFG.PARAMETERS.DEFAULT_CONTENT_TYPE}
-            request_obj = Request(
-                url=request, 
-                headers=default_headers,
-                method=HttpMethod.GET
-            )
-        else:
-            request_obj = request
 
-        # Применяем модификацию если функция задана
-        if self.API.request_modifier_func:
-            modified_request = self.API.request_modifier_func(copy.copy(request_obj))
-            
-            if asyncio.iscoroutinefunction(self.API.request_modifier_func):
-                modified_request = await modified_request
-            
-            # Проверяем что возвращен объект Request
-            if isinstance(modified_request, Request):
-                if modified_request.method != HttpMethod.ANY:
-                    return modified_request
-                else:
-                    self.API._logger.warning(CFG.LOGS.REQUEST_MODIFIER_ANY_TYPE)
-            else:
-                self.API._logger.warning(f"{CFG.LOGS.REQUEST_MODIFIER_FAILED_TYPE}: {type(modified_request)}")
+    @property
+    def url(self) -> str:
+        """
+        Возвращает URL текущей страницы.
         
-        return request_obj
+        Returns:
+            str: URL текущей страницы.
+        """
+        if not self._page:
+            raise RuntimeError(CFG.LOGS.PAGE_NOT_AVAILABLE)
+        
+        return self._page.url or "about:blank"
+
+    @property
+    def domain(self) -> str:
+        """
+        Возвращает домен текущей страницы.
+        
+        Returns:
+            str: Домен текущей страницы.
+        """
+        if not self._page:
+            raise RuntimeError(CFG.LOGS.PAGE_NOT_AVAILABLE)
+        
+        current_url = self.url
+        if current_url and current_url != "about:blank":
+            parsed_url = urlparse(current_url)
+            return parsed_url.netloc or "localhost"
+        
+        return "localhost"
+
+
+    async def get_cookies(self) -> List[Cookie]:
+        """
+        Получает cookies текущей страницы в формате Cookie объектов.
+        
+        Returns:
+            List[Cookie]: Список объектов Cookie для текущей страницы.
+        """
+        if not self._page:
+            raise RuntimeError(CFG.LOGS.PAGE_NOT_AVAILABLE)
+        
+        # Получаем cookies в формате Playwright
+        return await self.API.get_cookies(self.url)
+
+
+    async def add_cookies(self, cookies: Union[dict, Cookie, List[Cookie]]) -> None:
+        """
+        Добавляет cookies в текущий контекст браузера. Если не установлен, устанавливает домен.
+        
+        Args:
+            cookies: Может быть:
+                - dict: {"name": "value"} - простое добавление cookie
+                - List[dict]: [{"name": "value"}, ...] - множественное добавление
+                - Cookie: объект Cookie с детальными параметрами
+                - List[Cookie]: список объектов Cookie
+        """
+        if not self._page:
+            raise RuntimeError(CFG.LOGS.PAGE_NOT_AVAILABLE)
+        
+        # Получаем текущий домен страницы
+        current_domain = self.domain
+        
+        # Нормализуем входные данные к списку Cookie объектов
+        cookie_objects = []
+        
+        if isinstance(cookies, dict):
+            # Одиночный dict: {"name": "value"}
+            for name, value in cookies.items():
+                cookie_objects.append(Cookie(name=name, value=value, domain=current_domain))
+        elif isinstance(cookies, list):
+            for item in cookies:
+                if isinstance(item, Cookie):
+                    # Cookie объект в списке - подставляем домен если не указан
+                    if not item.domain:
+                        item.domain = current_domain
+                    cookie_objects.append(item)
+        elif isinstance(cookies, Cookie):
+            # Одиночный Cookie объект - подставляем домен если не указан
+            if not cookies.domain:
+                cookies.domain = current_domain
+            cookie_objects.append(cookies)
+        
+        # Вызываем метод API для добавления cookies
+        await self.API.add_cookies(cookie_objects)
+    
+    async def remove_cookies(self, cookies: Union[str, List[str], Cookie, List[Cookie]]) -> None:
+        """
+        Удаляет cookies из текущего контекста браузера. Если не установлен, устанавливает домен.
+        
+        Args:
+            cookies: Может быть:
+                - str: имя cookie для удаления (домен текущей страницы)
+                - List[str]: список имен cookies для удаления (домен текущей страницы)
+                - Cookie: объект Cookie для удаления (по имени и домену)
+                - List[Cookie]: список объектов Cookie для удаления (по имени и домену)
+        """
+        if not self._page:
+            raise RuntimeError(CFG.LOGS.PAGE_NOT_AVAILABLE)
+        
+        # Получаем текущий домен страницы
+        current_url = self._page.url
+        if current_url and current_url != "about:blank":
+            parsed_url = urlparse(current_url)
+            current_domain = parsed_url.netloc or "localhost"
+        else:
+            current_domain = "localhost"
+        
+        # Нормализуем входные данные
+        normalized_cookies = []
+        
+        if isinstance(cookies, str):
+            # Одиночное имя cookie - создаем Cookie объект с текущим доменом
+            normalized_cookies.append(Cookie(name=cookies, value="", domain=current_domain))
+        elif isinstance(cookies, list):
+            for item in cookies:
+                if isinstance(item, str):
+                    # Имя cookie в списке - создаем Cookie объект с текущим доменом
+                    normalized_cookies.append(Cookie(name=item, value="", domain=current_domain))
+                elif isinstance(item, Cookie):
+                    # Cookie объект в списке - подставляем домен если не указан
+                    if not item.domain:
+                        item.domain = current_domain
+                    normalized_cookies.append(item)
+        elif isinstance(cookies, Cookie):
+            # Одиночный Cookie объект - подставляем домен если не указан
+            if not cookies.domain:
+                cookies.domain = current_domain
+            normalized_cookies.append(cookies)
+        
+        # Вызываем метод API для удаления cookies
+        await self.API.remove_cookies(normalized_cookies)
+
 
     async def direct_fetch(self, url: str, handlers: Union[Handler, List[Handler]] = Handler.MAIN(), wait_selector: Optional[str] = None) -> List[Union[HandlerSearchSuccess, HandlerSearchFailed]]:
         """
@@ -126,8 +232,39 @@ class Page:
 
         start_time = time.time()
         
+        async def modify_request(request: Union[Request, str]) -> Request:
+            """Создание и модификация объекта запроса"""
+            # Создаем объект Request если передана строка
+            if isinstance(request, str):
+                default_headers = {"Content-Type": CFG.PARAMETERS.DEFAULT_CONTENT_TYPE}
+                request_obj = Request(
+                    url=request, 
+                    headers=default_headers,
+                    method=HttpMethod.GET
+                )
+            else:
+                request_obj = request
+
+            # Применяем модификацию если функция задана
+            if self.API.request_modifier_func:
+                modified_request = self.API.request_modifier_func(copy.copy(request_obj))
+                
+                if asyncio.iscoroutinefunction(self.API.request_modifier_func):
+                    modified_request = await modified_request
+                
+                # Проверяем что возвращен объект Request
+                if isinstance(modified_request, Request):
+                    if modified_request.method != HttpMethod.ANY:
+                        return modified_request
+                    else:
+                        self.API._logger.warning(CFG.LOGS.REQUEST_MODIFIER_ANY_TYPE)
+                else:
+                    self.API._logger.warning(CFG.LOGS.REQUEST_MODIFIER_FAILED_TYPE.format(object_type=type(modified_request)))
+            
+            return request_obj
+
         # Получаем модифицированный объект Request
-        final_request = await self.modify_request(request)
+        final_request = await modify_request(request)
         
         # Перехватываем заголовки запроса через Playwright
         captured_request_headers = {}
@@ -186,35 +323,7 @@ class Page:
         content_type = response_data['headers'].get('content-type', '')
         parsed_data = parse_response_data(raw_data, content_type)
         
-        # Обрабатываем Set-Cookie заголовки вручную
-        if 'set-cookie' in response_data['headers']:
-            set_cookie_header = response_data['headers']['set-cookie']
-            self.API._logger.debug(f"{CFG.LOGS.PROCESSING_COOKIE}: {set_cookie_header}")
-            
-            # Устанавливаем куки через Playwright API
-            try:
-                # Парсим домен из URL для установки кук
-                parsed_url = urlparse(final_request.real_url)
-                domain = parsed_url.netloc
-                
-                # Простой парсинг Set-Cookie (для более сложных случаев нужен полноценный парсер)
-                for cookie_string in set_cookie_header.split(','):
-                    cookie_parts = cookie_string.strip().split(';')
-                    if cookie_parts:
-                        name_value = cookie_parts[0].split('=', 1)
-                        if len(name_value) == 2:
-                            name, value = name_value
-                            await self.API._bcontext.add_cookies([{
-                                'name': name.strip(),
-                                'value': value.strip(),
-                                'domain': domain,
-                                'path': '/'
-                            }])
-                            self.API._logger.debug(f"{CFG.LOGS.COOKIE_SET}: {name.strip()}={value.strip()}")
-            except Exception as e:
-                self.API._logger.warning(f"{CFG.LOGS.COOKIE_PROCESSING_FAILED}: {e}")
-        
-        self.API._logger.info(f"{CFG.LOGS.INJECT_FETCH_COMPLETED} {duration:.3f}s")
+        self.API._logger.info(CFG.LOGS.INJECT_FETCH_COMPLETED.format(duration=duration))
         
         return Response(
             status=response_data['status'],
