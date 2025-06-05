@@ -26,4 +26,4 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run Tools Tests
-        run: pytest
+        run: pytest -n auto

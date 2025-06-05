@@ -1,3 +1,6 @@
+camoufox[geoip]
 beartype
+
 pytest
 pytest-asyncio
+pytest-xdist

@@ -32,6 +32,13 @@ dependencies = [
     "beartype"
 ]
 
+[project.optional-dependencies]
+test = [
+    "pytest",
+    "pytest-asyncio", 
+    "pytest-xdist"
+]
+
 [project.urls]
 Homepage = "https://github.com/Open-Inflation/standard_open_inflation_package"
 

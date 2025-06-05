@@ -1,6 +1,6 @@
 import urllib.parse
 from beartype import beartype
-from beartype.typing import Union, Optional, Dict, List
+from beartype.typing import Union, Optional, Dict
 from .tools import parse_content_type
 from enum import Enum
 from io import BytesIO

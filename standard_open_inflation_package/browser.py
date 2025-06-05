@@ -1,9 +1,8 @@
 import asyncio
-import urllib.parse
 from camoufox import AsyncCamoufox
 import logging
 from beartype import beartype
-from beartype.typing import Union, Optional, Callable, List, TYPE_CHECKING, Any
+from beartype.typing import Union, Optional, Callable, List, TYPE_CHECKING
 from .tools import parse_proxy
 from . import config as CFG
 from .handler import Handler, HandlerSearchSuccess, HandlerSearchFailed

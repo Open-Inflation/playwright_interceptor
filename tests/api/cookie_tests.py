@@ -2,8 +2,7 @@
 Тесты для системы управления cookies
 """
 import pytest
-import logging
-from . import api_session, api_page_session, DEFAULT_TIMEOUT
+from . import api_page_session, DEFAULT_TIMEOUT
 from standard_open_inflation_package import Cookie
 
 
