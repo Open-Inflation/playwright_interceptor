@@ -257,7 +257,7 @@ class BaseAPI:
         if include_browser:
             prox = parse_proxy(self.proxy, self.trust_env, self._logger)
             self._logger.info(CFG.LOGS.OPENING_BROWSER.format(proxy=CFG.LOGS.SYSTEM_PROXY if prox and not self.proxy else prox))
-            self._browser = await AsyncCamoufox(headless=not self.debug, proxy=prox, geoip=True).__aenter__()
+            self._browser = await AsyncCamoufox(headless=not self.debug, humanize=True, proxy=prox, geoip=True).__aenter__()
             self._bcontext = await self._browser.new_context()
             self._logger.info(CFG.LOGS.BROWSER_CONTEXT_OPENED)
             if self.start_func:

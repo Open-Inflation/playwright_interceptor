@@ -11,7 +11,7 @@ from .browser import BaseAPI
 from .page import Page
 
 # Версия пакета
-__version__ = "0.1.4"
+__version__ = "0.1.5"
 
 # Публичный API
 __all__ = [

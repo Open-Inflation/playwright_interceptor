@@ -5,17 +5,13 @@ import json
 import copy
 from urllib.parse import urlparse
 from beartype import beartype
-from beartype.typing import Union, Optional, List, TYPE_CHECKING
+from beartype.typing import Union, Optional, List
 from .content_loader import parse_response_data
 from . import config as CFG
 from .models import Response, Request, HttpMethod, Cookie
 from .exceptions import NetworkError
 from .handler import Handler, HandlerSearchFailed, HandlerSearchSuccess
 from .direct_request_interceptor import MultiRequestInterceptor
-
-if TYPE_CHECKING:
-    pass
-
 
 
 @beartype
@@ -231,7 +227,7 @@ class Page:
             raise RuntimeError(CFG.LOGS.PAGE_NOT_AVAILABLE)
 
         start_time = time.time()
-        
+
         async def modify_request(request: Union[Request, str]) -> Request:
             """Создание и модификация объекта запроса"""
             # Создаем объект Request если передана строка
@@ -266,19 +262,26 @@ class Page:
         # Получаем модифицированный объект Request
         final_request = await modify_request(request)
         
-        # Перехватываем заголовки запроса через Playwright
-        captured_request_headers = {}
+        # Создаем специальный handler для перехвата нашего запроса
+        # Используем ALL с ANY типом контента и указываем конкретный URL + метод
+        request_interceptor_handler = Handler.ALL(
+            startswith_url=final_request.real_url,
+            method=final_request.method,
+            max_responses=1 # Нам нужен только один запрос
+        )
         
-        def _on_request(req):
-            # Перехватываем заголовки запроса для нужного URL
-            if req.url == final_request.real_url:
-                nonlocal captured_request_headers
-                captured_request_headers = dict(req.headers)
-
-        # Добавляем слушатель запросов
-        self.API._bcontext.on("request", _on_request)
+        # Используем MultiRequestInterceptor для перехвата
+        multi_interceptor = MultiRequestInterceptor(
+            self.API, 
+            [request_interceptor_handler], 
+            final_request.real_url, 
+            start_time
+        )
 
         try:
+            # Устанавливаем перехват маршрутов
+            await self._page.route("**/*", multi_interceptor.handle_route)
+            
             # JavaScript-код для выполнения запроса с возвратом статуса и заголовков
             script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), CFG.PARAMETERS.INJECT_FETCH_JS_FILE)
 
@@ -295,13 +298,20 @@ class Page:
             # Подготавливаем данные для JavaScript
             body_str = json.dumps(final_request.body) if isinstance(final_request.body, dict) else "null"
             
-            result = await self._page.evaluate(f"({script})(\"{final_request.real_url}\", \"{final_request.method.value}\", {body_str}, {json.dumps(final_request.headers)})")
+            # Запускаем запрос и перехват параллельно
+            request_task = asyncio.create_task(
+                self._page.evaluate(f"({script})(\"{final_request.real_url}\", \"{final_request.method.value}\", {body_str}, {json.dumps(final_request.headers)})")
+            )
+            
+            # Ждем результат перехвата (с коротким таймаутом для перехвата)
+            intercept_results = await multi_interceptor.wait_for_results(self.API.timeout)
+            
+            # Получаем результат JavaScript
+            result = await request_task
             
         finally:
-            # Удаляем слушатель запросов
-            self.API._bcontext.remove_listener("request", _on_request)
-        
-        duration = time.time() - start_time
+            # Очищаем перехват маршрутов
+            await self._page.unroute("**/*", multi_interceptor.handle_route)
         
         # Проверяем, что вернул JavaScript - успешный ответ или ошибку
         if not result.get('success', False):
@@ -312,27 +322,27 @@ class Page:
                 message=error_info.get('message', CFG.ERRORS.MESSAGE_UNKNOWN),
                 details=error_info.get('details', {}),
                 timestamp=error_info.get('timestamp', ''),
-                duration=duration
+                duration=time.time() - start_time
             )
         
-        # Извлекаем данные успешного ответа
-        response_data = result['response']
+        # Получаем заголовки из перехваченного запроса
+        captured_request_headers = {}
+        if intercept_results and len(intercept_results) > 0:
+            first_result = intercept_results[0]
+            if isinstance(first_result, HandlerSearchSuccess) and len(first_result.responses) > 0:
+                captured_request_headers = first_result.responses[0].request_headers
+                self.API._logger.debug(f"Captured request headers: {captured_request_headers}")
+            else:
+                self.API._logger.debug("No request headers captured")
+        else:
+            self.API._logger.debug("No intercept results")
         
         # Парсим данные в зависимости от Content-Type
-        raw_data = response_data['data']
-        content_type = response_data['headers'].get('content-type', '')
-        parsed_data = parse_response_data(raw_data, content_type)
+        real_resp = intercept_results[0].responses[0]
         
-        self.API._logger.info(CFG.LOGS.INJECT_FETCH_COMPLETED.format(duration=duration))
+        self.API._logger.info(CFG.LOGS.INJECT_FETCH_COMPLETED.format(duration=real_resp.duration))
         
-        return Response(
-            status=response_data['status'],
-            request_headers=captured_request_headers,
-            response_headers=response_data['headers'],
-            response=parsed_data,
-            duration=duration,
-            url=final_request.real_url
-        )
+        return real_resp
 
     async def close(self):
         """Закрывает страницу"""
