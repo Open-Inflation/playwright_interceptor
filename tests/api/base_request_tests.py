@@ -20,6 +20,7 @@ async def test_header_slug():
     assert handler.slug == slug, f"Handler slug should be '{slug}', got '{handler.slug}'"
 
     random_slug_handler = Handler.MAIN()
+    assert isinstance(random_slug_handler.slug, str), "Random slug should be STR"
     assert len(random_slug_handler.slug) == 8, "Random slug should be 8 characters long"
 
 @pytest.mark.asyncio

@@ -1,5 +1,5 @@
 import pytest
-from standard_open_inflation_package.handler import Handler
+from standard_open_inflation_package.handler import Handler, ExpectedContentType
 from io import BytesIO
 
 # Импортируем утилиты для тестирования
@@ -54,7 +54,7 @@ async def test_interceptor_css_resources():
     
     await run_page_resource_intercept_test(
         CHECK_CSS_PAGE,
-        Handler.CSS(),
+        Handler.SIDE(expected_content=ExpectedContentType.CSS),
         expected_type=str,
         additional_checks=check_css_content,
         min_resources=1
@@ -73,7 +73,7 @@ async def test_interceptor_js_resources():
     
     await run_page_resource_intercept_test(
         CHECK_JS_PAGE,
-        Handler.JS(),
+        Handler.SIDE(expected_content=ExpectedContentType.JS),
         expected_type=str,
         additional_checks=check_js_content,
         min_resources=1
@@ -93,7 +93,7 @@ async def test_interceptor_image_resources():
     
     await run_page_resource_intercept_test(
         CHECK_IMAGE_PAGE,
-        Handler.IMAGE(),
+        Handler.SIDE(expected_content=ExpectedContentType.IMAGE),
         expected_type=BytesIO,
         additional_checks=check_image_content,
         min_resources=1
@@ -113,7 +113,7 @@ async def test_interceptor_font_resources():
     
     await run_page_resource_intercept_test(
         CHECK_FONT_PAGE,
-        Handler.FONT(),
+        Handler.SIDE(expected_content=ExpectedContentType.FONT),
         expected_type=BytesIO,
         additional_checks=check_font_content
     )
@@ -133,7 +133,7 @@ async def test_interceptor_max_responses():
     max_resp = [1, 2, 3]  # Максимальное количество ответов, которые мы хотим перехватить
     async with api_session(DEFAULT_TIMEOUT) as api:
         results = await api.new_direct_fetch(CHECK_HTML_PAGE, handlers=[
-            Handler.ANY(max_responses=max_resp[i]) for i in range(len(max_resp))
+            Handler.ALL(max_responses=max_resp[i]) for i in range(len(max_resp))
         ])
         assert len(results) == len(max_resp), f"Expected {len(max_resp)} result, got {len(results)}"
         result = results[0]
@@ -158,7 +158,7 @@ async def test_interceptor_json_page():
     # Для JSON используем MAIN, так как Google отдает основную страницу как JSON API
     await run_direct_fetch_test(
         CHECK_JSON_PAGE,
-        Handler.JSON(),
+        Handler.SIDE(expected_content=ExpectedContentType.JSON),
         expected_type=(dict, list, str),  # Google может отдавать HTML тоже
         additional_checks=check_json_content if CHECK_JSON_PAGE.endswith('.json') else None
     )
@@ -177,7 +177,7 @@ async def test_interceptor_video_resources():
     
     await run_page_resource_intercept_test(
         CHECK_VIDEO_PAGE,
-        Handler.VIDEO(),
+        Handler.SIDE(expected_content=ExpectedContentType.VIDEO),
         expected_type=BytesIO,
         additional_checks=check_video_content,
         min_resources=1
@@ -197,7 +197,7 @@ async def test_interceptor_audio_resources():
     
     await run_page_resource_intercept_test(
         CHECK_AUDIO_PAGE,
-        Handler.AUDIO(),
+        Handler.SIDE(expected_content=ExpectedContentType.AUDIO),
         expected_type=BytesIO,
         additional_checks=check_audio_content,
         min_resources=1

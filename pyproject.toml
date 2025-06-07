@@ -45,6 +45,9 @@ Homepage = "https://github.com/Open-Inflation/standard_open_inflation_package"
 [project.scripts]
 soip-generate-docs-index = "standard_open_inflation_package.utils.docs_generator:main"
 
+[tool.setuptools.package-data]
+"standard_open_inflation_package" = ["inject_fetch.js"]
+
 [tool.setuptools.packages.find]
 where = ["."]
 

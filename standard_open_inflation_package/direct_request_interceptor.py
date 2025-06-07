@@ -60,9 +60,9 @@ class MultiRequestInterceptor:
                 
             if handler.should_capture(mock_response, self.base_url):
                 capturing_handlers.append(handler)
-                self.api._logger.debug(CFG.LOGS.HANDLER_WILL_CAPTURE.format(handler_type=handler.handler_type, url=response.url))
+                self.api._logger.debug(CFG.LOGS.HANDLER_WILL_CAPTURE.format(handler_type=handler.expected_content, url=response.url))
             else:
-                self.api._logger.debug(CFG.LOGS.HANDLER_REJECTED.format(handler_type=handler.handler_type, url=response.url, content_type=response.headers.get('content-type', CFG.PARAMETERS.DEFAULT_CONTENT_TYPE)))
+                self.api._logger.debug(CFG.LOGS.HANDLER_REJECTED.format(handler_type=handler.expected_content, url=response.url, content_type=response.headers.get('content-type', CFG.PARAMETERS.DEFAULT_CONTENT_TYPE)))
         
         # Если есть хендлеры для захвата, обрабатываем ответ один раз
         if capturing_handlers:
@@ -102,7 +102,7 @@ class MultiRequestInterceptor:
                 
                 max_responses_text = handler.max_responses or CFG.LOGS.UNLIMITED_SIZE
                 self.api._logger.info(CFG.LOGS.HANDLER_CAPTURED_RESPONSE.format(
-                    handler_type=handler.handler_type,
+                    handler_type=handler.expected_content,
                     url=response.url,
                     current_count=len(self.handler_results[handler.slug]),
                     max_responses=max_responses_text
@@ -110,7 +110,7 @@ class MultiRequestInterceptor:
                 
         except Exception as e:
             # Если произошла ошибка, логируем для всех хендлеров
-            handler_types = ', '.join(handler.handler_type for handler in handlers)
+            handler_types = ', '.join(str(handler.slug) for handler in handlers)
             self.api._logger.warning(CFG.ERRORS.FAILED_PROCESS_RESPONSE.format(
                 handler_list=handler_types,
                 url=response.url,
@@ -142,7 +142,7 @@ class MultiRequestInterceptor:
                 continue  # Уже завершен с ошибкой
                 
             # Если хандлер достиг лимита ответов, он завершен
-            if handler.max_responses is not None and len(self.handler_results[handler.slug]) >= handler.max_responses:
+            if handler.max_responses is not None and len(self.handler_results[str(handler.slug)]) >= handler.max_responses:
                 continue
             
             # Если хандлер еще не завершен, продолжаем ожидание
@@ -208,7 +208,7 @@ class MultiRequestInterceptor:
             # Формируем результат с тем, что успели получить
             result = []
             for handler in self.handlers:
-                if self.handler_results[handler.slug]:
+                if self.handler_results[str(handler.slug)]:
                     result.append(HandlerSearchSuccess(
                         responses=self.handler_results[handler.slug],
                         duration=duration,
