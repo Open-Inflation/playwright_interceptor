@@ -28,14 +28,15 @@ classifiers = [
     "Topic :: Utilities",
 ]
 dependencies = [
-    "camoufox[geoip]",
+    "playwright",
     "beartype"
 ]
 
 [project.optional-dependencies]
+camoufox = ["camoufox[geoip]"]
 test = [
     "pytest",
-    "pytest-asyncio", 
+    "pytest-asyncio",
     "pytest-xdist"
 ]
 
