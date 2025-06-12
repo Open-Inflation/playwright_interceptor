@@ -7,7 +7,8 @@ from . import (
     run_direct_fetch_test, 
     run_page_resource_intercept_test,
     run_no_intercept_test,
-    assert_success_result, 
+    assert_success_result,
+    assert_failed_result,
     assert_html_content,
     api_session,
     DEFAULT_TIMEOUT,
@@ -202,3 +203,20 @@ async def test_interceptor_audio_resources():
         additional_checks=check_audio_content,
         min_resources=1
     )
+
+
+@pytest.mark.asyncio
+async def test_handler_error_marks_failed(monkeypatch):
+    """Ensure handler errors are reported as failures."""
+    import standard_open_inflation_package.direct_request_interceptor as interceptor
+
+    def raise_error(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(interceptor, "parse_response_data", raise_error)
+
+    async with api_session(DEFAULT_TIMEOUT) as api:
+        results = await api.new_direct_fetch(CHECK_HTML_PAGE, handlers=Handler.MAIN())
+
+        assert len(results) == 1
+        assert_failed_result(results[0], min_rejected=0)
