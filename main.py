@@ -25,11 +25,7 @@ class Sample:
         self.base_page = await api.new_page()
         resp = await self.base_page.direct_fetch(
             url="https://5ka.ru/catalog/",
-            wait_selector=".chakra-stack",
-            handlers=Handler.SIDE(
-                expected_content=ExpectedContentType.JSON,
-                startswith_url="https://5d.5ka.ru/api/catalog/v2/stores/", #todo поддержка регулярных выражений
-            )
+            wait_selector=".chakra-stack"
         )
         return resp
         
