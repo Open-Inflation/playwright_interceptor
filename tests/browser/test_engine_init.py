@@ -17,7 +17,7 @@ class DummyBrowser:
         return f"context:{kwargs}"
 
 class DummyConfig(BaseBrowserConfig):
-    async def initialize(self, proxy, debug):
+    async def initialize(self, proxy):
         return DummyBrowser(), {"foo": "bar"}, None
 
 @pytest.mark.asyncio

@@ -24,7 +24,6 @@ class BaseAPI:
 
     def __init__(
         self,
-        debug: bool = False,
         proxy: str | None = None,
         autoclose_browser: bool = False,
         trust_env: bool = False,
@@ -34,7 +33,6 @@ class BaseAPI:
         browser_engine: BaseBrowserConfig = BrowserEngine.FIREFOX(),
     ) -> None:
         # Используем property для установки настроек
-        self.debug = debug
         self.proxy = proxy
         self.autoclose_browser = autoclose_browser
         self.trust_env = trust_env
@@ -176,14 +174,7 @@ class BaseAPI:
 
 
     # Properties для настроек
-    @property
-    def debug(self) -> bool:
-        return self._debug
-
-    @debug.setter
-    def debug(self, value: bool) -> None:
-        self._debug = value
-
+    
     @property
     def proxy(self) -> str | None:
         return self._proxy
@@ -271,9 +262,7 @@ class BaseAPI:
                 )
             )
 
-            browser, ctx_options, extra = await self.engine_config.initialize(
-                prox, self.debug
-            )
+            browser, ctx_options, extra = await self.engine_config.initialize(prox)
             self._browser = browser
             self._bcontext = await self._browser.new_context(**ctx_options)
             self._playwright = extra

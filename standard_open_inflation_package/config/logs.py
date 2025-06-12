@@ -51,6 +51,8 @@ COOKIE_REMOVED = "Cookie removed: {name}"
 COOKIES_REMOVED = "Removed {count} cookies"
 COOKIE_NOT_FOUND = "Cookie '{name}' not found for removal"
 
+CAMOUFOX_NOT_INSTALLED = "Camoufox is not installed. Install with 'pip install standard_open_inflation_package[camoufox]'"
+
 # Text constants
 UNLIMITED_SIZE = "unlimited"
 UNKNOWN_HEADER_TYPE = "unknown"

@@ -13,7 +13,7 @@ class Sample:
             timeout=60.0,
             start_func=self.start_func,
             request_modifier_func=self.modify_request,
-            browser_engine=BrowserEngine.CHROMIUM(headless=False),
+            browser_engine=BrowserEngine.CAMOUFOX(headless=False),
         )
         self.API._logger.setLevel("DEBUG")
         self.base_page: Page | None = None

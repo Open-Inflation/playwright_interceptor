@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any, Optional, Tuple
+from . import config as CFG
+
 
 __all__ = [
     "BrowserEngine",
@@ -24,10 +26,10 @@ class BrowserEngine(Enum):
 
 @dataclass(slots=True)
 class BaseBrowserConfig:
-    headless: Optional[bool] = None
+    headless: bool = True
 
     async def initialize(
-        self, proxy: Optional[str], debug: bool
+        self, proxy: Optional[str]
     ) -> Tuple[Any, dict, Optional[Any]]:
         """Launch browser and return (browser, context_options, extra)."""
         raise NotImplementedError
@@ -39,19 +41,15 @@ class CamoufoxConfig(BaseBrowserConfig):
     geoip: bool = True
 
     async def initialize(
-        self, proxy: Optional[str], debug: bool
+        self, proxy: Optional[str]
     ) -> Tuple[Any, dict, Optional[Any]]:
         try:
             from camoufox import AsyncCamoufox
         except ImportError as e:
-            print(
-                "Camoufox is not installed. Install with 'pip install standard_open_inflation_package[camoufox]'"
-            )
-            raise
+            raise ImportError(CFG.LOGS.CAMOUFOX_NOT_INSTALLED) from e
 
-        headless = self.headless if self.headless is not None else not debug
         browser = await AsyncCamoufox(
-            headless=headless,
+            headless=self.headless,
             humanize=self.humanization,
             proxy=proxy,
             geoip=self.geoip,
@@ -65,13 +63,12 @@ class PlaywrightConfig(BaseBrowserConfig):
     ignore_https_errors: bool = True
 
     async def initialize(
-        self, proxy: Optional[str], debug: bool
+        self, proxy: Optional[str]
     ) -> Tuple[Any, dict, Optional[Any]]:
         from playwright.async_api import async_playwright
 
-        headless = self.headless if self.headless is not None else not debug
         playwright = await async_playwright().start()
-        launch_args = {"headless": headless}
+        launch_args = {"headless": self.headless}
         if proxy:
             launch_args["proxy"] = proxy
 
