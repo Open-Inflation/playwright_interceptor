@@ -40,6 +40,10 @@ PROXY_PARSED_REGEX = "Proxy parsed as regex"
 CONNECTION_CLOSED_SUCCESS = "The {connection_name} {status}"
 CONNECTION_NOT_OPEN_WARNING = "The {connection_name} {status}"
 
+# Cleanup messages
+UNROUTE_CLEANUP_ERROR_DIRECT_FETCH = "Error during unroute cleanup in direct_fetch: {error}"
+UNROUTE_CLEANUP_ERROR_INJECT_FETCH = "Error during unroute cleanup in inject_fetch: {error}"
+
 # Cookie management messages
 COOKIE_ADDED = "Cookie added: {name}={value} for domain {domain}"
 COOKIES_ADDED = "Added {count} cookies"

@@ -2,13 +2,19 @@ from standard_open_inflation_package import BaseAPI, Request, Response, HttpMeth
 from standard_open_inflation_package.exceptions import NetworkError
 from standard_open_inflation_package import config as CFG
 from standard_open_inflation_package.handler import Handler, ExpectedContentType, HandlerSearchSuccess, HandlerSearchFailed
+from standard_open_inflation_package.browser_engines import BrowserEngine
 from pprint import pprint
 import time
 from io import BytesIO
 
 class Sample:
     def __init__(self):
-        self.API = BaseAPI(timeout=60.0, start_func=self.start_func, request_modifier_func=self.modify_request)
+        self.API = BaseAPI(
+            timeout=60.0,
+            start_func=self.start_func,
+            request_modifier_func=self.modify_request,
+            browser_engine=BrowserEngine.CHROMIUM(headless=False),
+        )
         self.API._logger.setLevel("DEBUG")
         self.base_page: Page | None = None
     

@@ -41,6 +41,12 @@ class MultiRequestInterceptor:
         """Обработчик маршрута для перехвата запросов"""
         request = route.request
         
+        # Проверяем протокол URL - пропускаем неподдерживаемые протоколы
+        if request.url.startswith(CFG.PARAMETERS.UNSUPPORTED_PROTOCOLS):
+            # Продолжаем обработку запроса без перехвата
+            await route.continue_()
+            return
+        
         # Выполняем запрос
         response = await route.fetch()
         response_time = time.time()
