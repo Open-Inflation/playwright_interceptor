@@ -9,7 +9,7 @@ from standard_open_inflation_package import Cookie
 @pytest.mark.asyncio
 async def test_cookie_removal():
     """Тест удаления cookies"""
-    async with api_page_session(timeout=DEFAULT_TIMEOUT, debug=False) as (api, page):
+    async with api_page_session(timeout=DEFAULT_TIMEOUT) as (api, page):
         await page.direct_fetch("https://example.com", wait_selector="body")
         # Добавляем несколько cookies
         cookies_to_add = {
@@ -47,7 +47,7 @@ async def test_cookie_removal():
 @pytest.mark.asyncio 
 async def test_cookie_types_handling():
     """Тест обработки различных типов входных данных для cookies"""
-    async with api_page_session(timeout=DEFAULT_TIMEOUT, debug=False) as (api, page):
+    async with api_page_session(timeout=DEFAULT_TIMEOUT) as (api, page):
         await page.direct_fetch("https://example.com", wait_selector="body")
         # Тест простого словаря
         simple_dict = {"simple": "value"}
@@ -125,7 +125,7 @@ async def test_cookie_object_functionality():
 
 @pytest.mark.asyncio
 async def test_get_cookies():
-    async with api_page_session(timeout=DEFAULT_TIMEOUT, debug=False) as (api, page):
+    async with api_page_session(timeout=DEFAULT_TIMEOUT) as (api, page):
         await page.direct_fetch("https://example.com", wait_selector="body")
         # Добавляем несколько cookies
         await page.add_cookies({"cookie1": "value1", "cookie2": "value2"})

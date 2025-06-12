@@ -40,7 +40,6 @@ from standard_open_inflation_package import BaseAPI, Handler
 async def main():
     # Инициализация API с настройками
     api = BaseAPI(
-        debug=True,               # Показывать браузер для отладки
         timeout=30.0,             # Таймаут запросов
         proxy="http://proxy:8080" # Опциональный прокси
     )
@@ -77,7 +76,6 @@ class SessionBasedScraper:
     def __init__(self):
         self._page = None
         self.api = BaseAPI(
-            debug=False,
             timeout=60.0,
             start_func=self.initialize_session,  # Инициализация сессии
             request_modifier_func=self.modify_request  # Модификация запросов inject_fetch
@@ -183,7 +181,6 @@ soip-generate-docs-index docs
 Главный класс для управления браузером и сессиями.
 
 **Параметры конструктора:**
-- `debug: bool = False` - показывать браузер для отладки
 - `proxy: str | None = None` - прокси-сервер
 - `autoclose_browser: bool = False` - автоматически закрывать браузер
 - `trust_env: bool = False` - доверять переменным окружения для прокси
@@ -326,7 +323,7 @@ import asyncio
 from standard_open_inflation_package import BaseAPI, Handler
 
 async def scrape_dynamic_content():
-    api = BaseAPI(debug=True)
+    api = BaseAPI()
     await api.new_session(include_browser=True)
     
     try:

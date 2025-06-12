@@ -210,7 +210,11 @@ class Page:
             
         finally:
             # Очищаем перехват маршрутов
-            await self._page.unroute("**/*", multi_interceptor.handle_route)
+            try:
+                await self._page.unroute("**/*", multi_interceptor.handle_route)
+            except Exception as e:
+                # Игнорируем ошибки при закрытии соединения (например, при Ctrl+C)
+                self.API._logger.warning(CFG.LOGS.UNROUTE_CLEANUP_ERROR_DIRECT_FETCH.format(error=e))
 
     async def inject_fetch(self, request: Union[Request, str]) -> Union[Response, NetworkError]:
         """
@@ -311,7 +315,11 @@ class Page:
             
         finally:
             # Очищаем перехват маршрутов
-            await self._page.unroute("**/*", multi_interceptor.handle_route)
+            try:
+                await self._page.unroute("**/*", multi_interceptor.handle_route)
+            except Exception as e:
+                # Игнорируем ошибки при закрытии соединения (например, при Ctrl+C)
+                self.API._logger.debug(CFG.LOGS.UNROUTE_CLEANUP_ERROR_INJECT_FETCH.format(error=e))
         
         # Проверяем, что вернул JavaScript - успешный ответ или ошибку
         if not result.get('success', False):

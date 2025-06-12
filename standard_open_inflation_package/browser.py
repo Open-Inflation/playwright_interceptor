@@ -1,12 +1,16 @@
 import asyncio
-from camoufox import AsyncCamoufox
 import logging
 from beartype import beartype
-from beartype.typing import Union, Optional, Callable, List, TYPE_CHECKING
+from beartype.typing import Optional, Callable, List, TYPE_CHECKING, Union
 from .tools import parse_proxy
 from . import config as CFG
 from .handler import Handler, HandlerSearchSuccess, HandlerSearchFailed
 from .models import Cookie
+from .browser_engines import (
+    BrowserEngine,
+    BaseBrowserConfig,
+)
+
 
 if TYPE_CHECKING:
     pass
@@ -18,17 +22,17 @@ class BaseAPI:
     Класс для загрузки JSON/image/html.
     """
 
-    def __init__(self,
-                 debug:                 bool            = False,
-                 proxy:                 str | None      = None,
-                 autoclose_browser:     bool            = False,
-                 trust_env:             bool            = False,
-                 timeout:               float           = 10.0,
-                 start_func:            Callable | None = None,
-                 request_modifier_func: Callable | None = None
-        ) -> None:
+    def __init__(
+        self,
+        proxy: str | None = None,
+        autoclose_browser: bool = False,
+        trust_env: bool = False,
+        timeout: float = 10.0,
+        start_func: Callable | None = None,
+        request_modifier_func: Callable | None = None,
+        browser_engine: BaseBrowserConfig = BrowserEngine.FIREFOX(),
+    ) -> None:
         # Используем property для установки настроек
-        self.debug = debug
         self.proxy = proxy
         self.autoclose_browser = autoclose_browser
         self.trust_env = trust_env
@@ -36,8 +40,11 @@ class BaseAPI:
         self.start_func = start_func
         self.request_modifier_func = request_modifier_func
 
+        self.engine_config = browser_engine
+
         self._browser = None
         self._bcontext = None
+        self._playwright = None
 
         self._logger = logging.getLogger(self.__class__.__name__)
         handler = logging.StreamHandler()
@@ -167,14 +174,7 @@ class BaseAPI:
 
 
     # Properties для настроек
-    @property
-    def debug(self) -> bool:
-        return self._debug
-
-    @debug.setter
-    def debug(self, value: bool) -> None:
-        self._debug = value
-
+    
     @property
     def proxy(self) -> str | None:
         return self._proxy
@@ -256,9 +256,16 @@ class BaseAPI:
 
         if include_browser:
             prox = parse_proxy(self.proxy, self.trust_env, self._logger)
-            self._logger.info(CFG.LOGS.OPENING_BROWSER.format(proxy=CFG.LOGS.SYSTEM_PROXY if prox and not self.proxy else prox))
-            self._browser = await AsyncCamoufox(headless=not self.debug, humanize=True, proxy=prox, geoip=True).__aenter__()
-            self._bcontext = await self._browser.new_context()
+            self._logger.info(
+                CFG.LOGS.OPENING_BROWSER.format(
+                    proxy=CFG.LOGS.SYSTEM_PROXY if prox and not self.proxy else prox
+                )
+            )
+
+            browser, ctx_options, extra = await self.engine_config.initialize(prox)
+            self._browser = browser
+            self._bcontext = await self._browser.new_context(**ctx_options)
+            self._playwright = extra
             self._logger.info(CFG.LOGS.BROWSER_CONTEXT_OPENED)
             if self.start_func:
                 self._logger.info(CFG.LOGS.START_FUNC_EXECUTING.format(function_name=self.start_func.__name__))
@@ -274,13 +281,15 @@ class BaseAPI:
         include_browser: bool = True
     ) -> None:
         """
-        Close the Camoufox browser if it is open.
+        Close the browser if it is open.
         :param include_browser: close browser if True
         """
         to_close = []
         if include_browser:
             to_close.append("bcontext")
             to_close.append("browser")
+            if self._playwright is not None:
+                to_close.append("playwright")
 
         self._logger.info(CFG.LOGS.PREPARING_TO_CLOSE.format(connections=to_close if to_close else CFG.LOGS.NOTHING))
 
@@ -290,7 +299,8 @@ class BaseAPI:
 
         checks = {
             "browser": lambda a: a is not None,
-            "bcontext": lambda a: a is not None
+            "bcontext": lambda a: a is not None,
+            "playwright": lambda a: a is not None,
         }
 
         for name in to_close:
@@ -299,9 +309,14 @@ class BaseAPI:
                 self._logger.info(CFG.LOGS.CLOSING_CONNECTION.format(connection_name=name))
                 try:
                     if name == "browser":
-                        await attr.__aexit__(None, None, None)
-                    elif name in ["bcontext"]:
+                        if self._playwright is None:
+                            await attr.__aexit__(None, None, None)
+                        else:
+                            await attr.close()
+                    elif name == "bcontext":
                         await attr.close()
+                    elif name == "playwright":
+                        await attr.stop()
                     else:
                         raise ValueError(f"{CFG.ERRORS.UNKNOWN_CONNECTION_TYPE}: {name}")
 

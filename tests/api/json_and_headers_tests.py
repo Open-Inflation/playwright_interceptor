@@ -1,6 +1,6 @@
 import pytest
 from standard_open_inflation_package import Response
-from standard_open_inflation_package.handler import Handler
+from standard_open_inflation_package.handler import Handler, ExpectedContentType
 
 # Импортируем утилиты для тестирования
 from . import (
@@ -25,7 +25,7 @@ async def test_html_new_direct_getter():
     
     await run_direct_fetch_test(
         CHECK_HTML, 
-        Handler.MAIN(),
+        Handler.MAIN(expected_content=ExpectedContentType.JSON),
         expected_type=dict,
         additional_checks=check_json_and_headers
     )
@@ -41,7 +41,7 @@ async def test_html_page_direct_getter():
     
     await run_page_direct_fetch_test(
         CHECK_HTML,
-        Handler.MAIN(),
+        Handler.MAIN(expected_content=ExpectedContentType.JSON),
         expected_type=dict,
         additional_checks=check_json_and_headers
     )
