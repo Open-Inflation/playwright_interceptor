@@ -116,6 +116,14 @@ class MultiRequestInterceptor:
                 url=response.url,
                 error=e
             ))
+            current_time = time.time()
+            for handler in handlers:
+                self.handler_errors[handler.slug] = HandlerSearchFailed(
+                    rejected_responses=self.rejected_responses,
+                    duration=current_time - self.start_time,
+                    handler_slug=handler.slug,
+                )
+            self._check_completion()
 
     def _handle_rejected_response(self, response, request, response_time: float):
         """Обрабатывает отклоненный response"""
