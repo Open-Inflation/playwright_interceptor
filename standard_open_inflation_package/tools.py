@@ -74,12 +74,12 @@ def parse_content_type(content_type: str) -> dict[str, str]:
     if not content_type:
         return {'content_type': ''}
     
-    # Нормализация и разделение на части
-    parts = content_type.lower().replace(' ', '').split(';')
-    
-    # Основной тип контента
+    # Разбиваем строку на части и убираем лишние пробелы
+    parts = [p.strip() for p in content_type.split(';')]
+
+    # Основной тип контента всегда в нижнем регистре
     result = {
-        'content_type': parts[0],
+        'content_type': parts[0].lower(),
         'charset': 'utf-8'  # По умолчанию устанавливаем utf-8
     }
 
@@ -87,15 +87,20 @@ def parse_content_type(content_type: str) -> dict[str, str]:
     for part in parts[1:]:
         if not part:
             continue
-        
+
         if '=' in part:
             key, value = part.split('=', 1)
+            key = key.strip().lower()
             # Удаление кавычек, если они есть
-            value = value.strip('"\'')
-            result[key] = value
+            value = value.strip().strip('"\'')
+            if key == 'charset':
+                value = value.lower()
+                result['charset'] = value
+            else:
+                result[key] = value
         else:
             # Для параметров без значений
-            result[part] = ''
+            result[part.lower()] = ''
     
     return result
 
