@@ -1,7 +1,7 @@
 from .models import Response, HttpMethod
 from .tools import parse_content_type
 from beartype import beartype
-from beartype.typing import List, Optional, Union
+from beartype.typing import List, Optional
 from enum import Enum, auto
 import uuid
 from . import config as CFG
@@ -59,7 +59,7 @@ class Handler:
              expected_content: ExpectedContentType = ExpectedContentType.TEXT,
              startswith_url: Optional[str] = None,
              method: HttpMethod = HttpMethod.ANY,
-             max_responses: Optional[int] = None,
+             max_responses: Optional[int] = 1,
              slug: Optional[str] = None):
         return cls(WatcherType.MAIN, expected_content, startswith_url, method, max_responses, slug)
 
@@ -68,7 +68,7 @@ class Handler:
              expected_content: ExpectedContentType = ExpectedContentType.ANY,
              startswith_url: Optional[str] = None,
              method: HttpMethod = HttpMethod.ANY,
-             max_responses: Optional[int] = None,
+             max_responses: Optional[int] = 1,
              slug: Optional[str] = None):
         return cls(WatcherType.SIDE, expected_content, startswith_url, method, max_responses, slug)
 
@@ -77,7 +77,7 @@ class Handler:
             expected_content: ExpectedContentType = ExpectedContentType.ANY,
             startswith_url: Optional[str] = None,
             method: HttpMethod = HttpMethod.ANY,
-            max_responses: Optional[int] = None,
+            max_responses: Optional[int] = 1,
             slug: Optional[str] = None):
         return cls(WatcherType.ALL, expected_content, startswith_url, method, max_responses, slug)
 
