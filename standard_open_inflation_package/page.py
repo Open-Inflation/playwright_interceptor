@@ -231,6 +231,8 @@ class Page:
             raise RuntimeError(CFG.LOGS.PAGE_NOT_AVAILABLE)
 
         start_time = time.time()
+        request_url = request if isinstance(request, str) else request.url
+        self.API._logger.info(CFG.LOGS.INJECT_FETCH_STARTED.format(url=request_url))
 
         async def modify_request(request: Union[Request, str]) -> Request:
             """Создание и модификация объекта запроса"""
@@ -242,19 +244,27 @@ class Page:
                     headers=default_headers,
                     method=HttpMethod.GET
                 )
+                self.API._logger.debug(CFG.LOGS.INJECT_FETCH_REQUEST_CREATED.format(url=request))
             else:
                 request_obj = request
+                self.API._logger.debug(CFG.LOGS.INJECT_FETCH_REQUEST_EXISTING.format(url=request.url))
 
             # Применяем модификацию если функция задана
             if self.API.request_modifier_func:
+                self.API._logger.debug(CFG.LOGS.INJECT_FETCH_MODIFIER_APPLYING)
                 modified_request = self.API.request_modifier_func(copy.copy(request_obj))
                 
                 if asyncio.iscoroutinefunction(self.API.request_modifier_func):
                     modified_request = await modified_request
+                    self.API._logger.debug(CFG.LOGS.INJECT_FETCH_MODIFIER_AWAITED)
                 
                 # Проверяем что возвращен объект Request
                 if isinstance(modified_request, Request):
                     if modified_request.method != HttpMethod.ANY:
+                        self.API._logger.info(CFG.LOGS.INJECT_FETCH_REQUEST_MODIFIED.format(
+                            url=modified_request.url,
+                            method=modified_request.method.value
+                        ))
                         return modified_request
                     else:
                         self.API._logger.warning(CFG.LOGS.REQUEST_MODIFIER_ANY_TYPE)
@@ -274,6 +284,8 @@ class Page:
             max_responses=1 # Нам нужен только один запрос
         )
         
+        self.API._logger.info(CFG.LOGS.INJECT_FETCH_INTERCEPTOR_SETUP.format(url=final_request.real_url))
+        
         # Используем MultiRequestInterceptor для перехвата
         multi_interceptor = MultiRequestInterceptor(
             self.API, 
@@ -285,16 +297,20 @@ class Page:
         try:
             # Устанавливаем перехват маршрутов
             await self._page.route("**/*", multi_interceptor.handle_route)
+            interceptor_waitor = multi_interceptor.wait_for_results(self.API.timeout)
             
             # JavaScript-код для выполнения запроса с возвратом статуса и заголовков
             script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), CFG.PARAMETERS.INJECT_FETCH_JS_FILE)
+            self.API._logger.debug(CFG.LOGS.INJECT_FETCH_JS_LOADING.format(path=script_path))
 
             def load_inject_script():
                 try:
                     with open(script_path, "r") as file:
                         return file.read()
                 except FileNotFoundError:
-                    raise FileNotFoundError(f"{CFG.ERRORS.JS_FILE_NOT_FOUND}: {script_path}")
+                    error_msg = f"{CFG.ERRORS.JS_FILE_NOT_FOUND}: {script_path}"
+                    self.API._logger.error(error_msg)
+                    raise FileNotFoundError(error_msg)
 
             # Load the script once
             script = load_inject_script()
@@ -302,21 +318,26 @@ class Page:
             # Подготавливаем данные для JavaScript
             body_str = json.dumps(final_request.body) if isinstance(final_request.body, dict) else "null"
             
-            # Запускаем запрос и перехват параллельно
-            request_task = asyncio.create_task(
-                self._page.evaluate(f"({script})(\"{final_request.real_url}\", \"{final_request.method.value}\", {body_str}, {json.dumps(final_request.headers)})")
-            )
+            # Логируем параметры запроса
+            self.API._logger.info(CFG.LOGS.INJECT_FETCH_JS_EVALUATING.format(
+                url=final_request.real_url, 
+                method=final_request.method.value
+            ))
             
-            # Ждем результат перехвата (с коротким таймаутом для перехвата)
-            intercept_results = await multi_interceptor.wait_for_results(self.API.timeout)
+            # Сначала выполняем запрос через JavaScript
+            result = await self._page.evaluate(f"({script})(\"{final_request.real_url}\", \"{final_request.method.value}\", {body_str}, {json.dumps(final_request.headers)})")
             
-            # Получаем результат JavaScript
-            result = await request_task
+            # Логируем результат выполнения JavaScript
+            self.API._logger.debug(CFG.LOGS.INJECT_FETCH_JS_COMPLETED.format(success=result.get('success', False)))
             
+            # Затем ждём результатов перехвата
+            intercept_results = await interceptor_waitor
         finally:
             # Очищаем перехват маршрутов
+            self.API._logger.debug(CFG.LOGS.INJECT_FETCH_ROUTE_CLEANUP)
             try:
                 await self._page.unroute("**/*", multi_interceptor.handle_route)
+                self.API._logger.debug(CFG.LOGS.INJECT_FETCH_ROUTE_CLEANUP_SUCCESS)
             except Exception as e:
                 # Игнорируем ошибки при закрытии соединения (например, при Ctrl+C)
                 self.API._logger.debug(CFG.LOGS.UNROUTE_CLEANUP_ERROR_INJECT_FETCH.format(error=e))
@@ -325,9 +346,17 @@ class Page:
         if not result.get('success', False):
             # Возвращаем объект ошибки
             error_info = result.get('error', {})
+            error_name = error_info.get('name', CFG.ERRORS.UNKNOWN)
+            error_message = error_info.get('message', CFG.ERRORS.MESSAGE_UNKNOWN)
+            
+            self.API._logger.error(CFG.LOGS.INJECT_FETCH_ERROR.format(
+                error_name=error_name,
+                error_message=error_message
+            ))
+            
             return NetworkError(
-                name=error_info.get('name', CFG.ERRORS.UNKNOWN),
-                message=error_info.get('message', CFG.ERRORS.MESSAGE_UNKNOWN),
+                name=error_name,
+                message=error_message,
                 details=error_info.get('details', {}),
                 timestamp=error_info.get('timestamp', ''),
                 duration=time.time() - start_time
@@ -339,16 +368,32 @@ class Page:
             first_result = intercept_results[0]
             if isinstance(first_result, HandlerSearchSuccess) and len(first_result.responses) > 0:
                 captured_request_headers = first_result.responses[0].request_headers
+                self.API._logger.info(CFG.LOGS.INJECT_FETCH_HEADERS_CAPTURED.format(
+                    headers_count=len(captured_request_headers)
+                ))
                 self.API._logger.debug(f"Captured request headers: {captured_request_headers}")
             else:
-                self.API._logger.debug("No request headers captured")
+                self.API._logger.info(CFG.LOGS.INJECT_FETCH_NO_HEADERS)
         else:
-            self.API._logger.debug("No intercept results")
+            self.API._logger.info(CFG.LOGS.INJECT_FETCH_NO_HEADERS)
         
-        # Парсим данные в зависимости от Content-Type
-        real_resp = intercept_results[0].responses[0]
+        # Проверяем результаты перехвата и получаем объект ответа
+        if intercept_results and len(intercept_results) > 0 and isinstance(intercept_results[0], HandlerSearchSuccess) and len(intercept_results[0].responses) > 0:
+            real_resp = intercept_results[0].responses[0]
+            duration = real_resp.duration
+        else:
+            self.API._logger.warning(CFG.LOGS.INJECT_FETCH_NO_VALID_RESPONSE)
+            duration = time.time() - start_time
+            # Возвращаем NetworkError, так как перехват не удался
+            return NetworkError(
+                name=CFG.ERRORS.UNKNOWN,
+                message=CFG.LOGS.INJECT_FETCH_INTERCEPTION_FAILED.format(reason="No response captured"),
+                details={"url": final_request.real_url, "method": final_request.method.value},
+                timestamp="",
+                duration=duration
+            )
         
-        self.API._logger.info(CFG.LOGS.INJECT_FETCH_COMPLETED.format(duration=real_resp.duration))
+        self.API._logger.info(CFG.LOGS.INJECT_FETCH_COMPLETED.format(duration=duration))
         
         return real_resp
 
