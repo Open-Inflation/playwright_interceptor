@@ -15,6 +15,14 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Skip Duplicate Actions
+        uses: fkirc/skip-duplicate-actions@v5
+        with:
+          concurrent_skipping: 'same_content'
+          skip_after_successful_duplicate: 'true'
+          paths_ignore: '["**/README.md", "**/*.md", ".github/workflows/**"]'
+          do_not_skip: '["workflow_dispatch"]'
+
       - name: Set Up Python
         uses: actions/setup-python@v5
         with:

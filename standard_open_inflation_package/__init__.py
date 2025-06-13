@@ -17,7 +17,7 @@ from .browser_engines import (
 from .page import Page
 
 # Версия пакета
-__version__ = "0.1.7"
+__version__ = "0.1.7.1"
 
 # Публичный API
 __all__ = [

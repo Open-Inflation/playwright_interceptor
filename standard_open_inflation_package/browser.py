@@ -325,4 +325,4 @@ class BaseAPI:
                 except Exception as e:
                     self._logger.error(CFG.ERRORS.BROWSER_COMPONENT_CLOSING_WITH_NAME.format(component_name=name, error=e))
             else:
-                self._logger.warning(CFG.LOGS.CONNECTION_NOT_OPEN_WARNING.format(connection_name=name, status=CFG.LOGS.CONNECTION_NOT_OPEN))
+                self._logger.debug(CFG.LOGS.CONNECTION_NOT_OPEN_WARNING.format(connection_name=name, status=CFG.LOGS.CONNECTION_NOT_OPEN))

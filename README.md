@@ -236,17 +236,23 @@ soip-generate-docs-index docs
 Перехватывает и возвращает первый подходящий элемент.
 
 **Статические методы:**
-- `Handler.MAIN()` - основная страница (HTML/JSON/изображения)
-- `Handler.JSON()` - JSON API
-- `Handler.JS()` - JavaScript файлы
-- `Handler.CSS()` - CSS файлы
-- `Handler.IMAGE()` - изображения
-- `Handler.CAPTURE()` - любой контент (в том числе MAIN)
+- `Handler.MAIN()` - основная страница URL == REQUEST URL
+- `Handler.SIDE()` - второстепенная страница URL != REQUEST URL
+- `Handler.ANY()` - любой URL
+- `Handler.NONE()` - хандлер отладки, ничего не ловит и ждет таймаута, после чего возвращает полный сетевой стек С СОДЕРЖИМЫМ! (уникальная способность этого хандлера)
 
-Каждый из перечисленных принимает `target_url` (str) и `type` (HttpMethod).
+Каждый из перечисленных принимает:
+- `expected_content` (ExpectedContentType) - тип ожидаемого контента.
+- `startswith_url` (str) - URL с которого должен начинаться интересующий запрос.
+- `method` (HttpMethod) - HTTP метод интересующего запроса.
+- `max_response` (int) - максимальное количество ответов. По умолчанию `None` - т.е. хандлер будет искать подходящие ответы пока не наступит `timeout`, если вы точно знаете, сколько вам нужно ответов, то как только все хандлеры найдут свои ответы - они завершат функцию недожидаясь таймаута и вернут ответы.
+- `slug` (str) - уникальное имя хандлера, полезно если в рамках одного запроса вы назначаете несколько разных хандлеров - `HandlerSearchSuccess` и `HandlerSearchFailed` имеют параметр `handler_slug`. Так можно определить какому хандлеру соответствует ответ. Если `slug` не назначен, он будет сгенерирован случайно перед началом поиска.
+
+#### `ExpectedContentType`
+Enum перечисление типов ожидаемого контента: `JSON`, `JS`, `CSS`, `IMAGE`, `VIDEO`, `AUDIO`, `FONT`, `APPLICATION` (PDF, XLS, DOCX, BIN, EXE и подобное), `ARCHIVE`, `TEXT` (в том числе HTML). Если это неважно - используйте `ExpectedContentType.ANY`.
 
 #### `HttpMethod`
-Enum перечисление HTTP методов: GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS.
+Enum перечисление HTTP методов: GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS. Если это неважно - используйте `HttpMethod.ANY`.
 
 #### `Response`
 Объект ответа с данными запроса.
@@ -299,8 +305,10 @@ async def monitor_api():
     try:
         # Попытка API запроса
         result = await page.inject_fetch(
-            url="https://api.example.com/status",
-            method="GET"
+            Request(
+                url="https://api.example.com/status",
+                method=HttpMethod.GET
+            )
         )
         
         if isinstance(result, NetworkError):

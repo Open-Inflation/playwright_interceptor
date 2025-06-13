@@ -6,6 +6,7 @@ from .content_loader import parse_response_data
 from . import config as CFG
 from .models import Response
 from .handler import Handler, HandlerSearchFailed, HandlerSearchSuccess
+from playwright._impl._errors import TargetClosedError
 
 
 @beartype
@@ -47,10 +48,15 @@ class MultiRequestInterceptor:
             await route.continue_()
             return
         
-        # Выполняем запрос
-        response = await route.fetch()
         response_time = time.time()
-        
+
+        # Выполняем запрос
+        try:
+            response = await route.fetch()
+        except TargetClosedError:
+            self.api._logger.info(CFG.LOGS.TARGET_CLOSED_ERROR.format(url=request.url))
+            return
+
         # Создаем мок-объект для проверки хандлеров
         mock_response = MockResponse(response.status, response.headers, response.url, request.method)
 
