@@ -1,40 +1,30 @@
 """
-Standard Open Inflation Package
+NetworkInterceptor addon for Playwright.
 
-Модульная библиотека для автоматизации веб-скрапинга и взаимодействия с API 
-через управляемый браузер. Поддерживает прокси, инъекцию заголовков, 
-обработку cookie и множественные методы получения данных.
+Provides advanced request interception and modification utilities.
 """
-# Импорт основных классов из модульной структуры
-from .models import HttpMethod, Response, Request, Cookie
+
+from .models import HttpMethod, Response, Request
 from .execute import Execute, ExecuteAction
-from .browser import BaseAPI
-from .browser_engines import (
-    BrowserEngine,
-    BaseBrowserConfig,
-    CamoufoxConfig,
-    PlaywrightConfig,
+from .handler import (
+    Handler,
+    ExpectedContentType,
+    HandlerSearchSuccess,
+    HandlerSearchFailed,
 )
-from .page import Page
+from .network_interceptor import NetworkInterceptor
 
-# Версия пакета
-__version__ = "0.1.8"
+__version__ = "0.2.0"
 
-# Публичный API
 __all__ = [
-    # Основные классы
-    'BaseAPI',
-    'BrowserEngine',
-    'BaseBrowserConfig',
-    'CamoufoxConfig',
-    'PlaywrightConfig',
-    'Page',
-    
-    # Модели данных
-    'Request',
-    'Response',
-    'HttpMethod',
-    'Cookie',
-    'Execute',
-    'ExecuteAction'
+    "NetworkInterceptor",
+    "Handler",
+    "ExpectedContentType",
+    "HandlerSearchSuccess",
+    "HandlerSearchFailed",
+    "Request",
+    "Response",
+    "HttpMethod",
+    "Execute",
+    "ExecuteAction",
 ]
