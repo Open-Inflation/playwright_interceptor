@@ -5,6 +5,7 @@ from .tools import parse_content_type
 from enum import Enum
 from io import BytesIO
 from dataclasses import dataclass
+import json
 from datetime import datetime
 from . import config as CFG
 
@@ -15,7 +16,7 @@ class Cookie:
     """Класс для представления HTTP cookie с полной информацией"""
     
     name: str
-    value: str
+    value: str | dict
     domain: str
     path: Optional[str] = None
     expires: Optional[datetime] = None
@@ -23,12 +24,27 @@ class Cookie:
     secure: bool = False
     http_only: bool = False
     same_site: Optional[str] = None  # None, 'Strict', 'Lax', 'None'
+
+    def __post_init__(self) -> None:
+        """Normalize cookie value and autodetect JSON."""
+        decoded_value = urllib.parse.unquote(str(self.value))
+        try:
+            if decoded_value.startswith("j:"):
+                self.value = json.loads(decoded_value[2:])
+            else:
+                self.value = decoded_value
+        except json.JSONDecodeError:
+            self.value = decoded_value
     
     def to_playwright_dict(self) -> Dict:
         """Конвертирует Cookie в формат для Playwright API"""
+        value = self.value
+        if isinstance(value, dict):
+            value = json.dumps(value, separators=(",", ":"))
+
         cookie_dict: Dict = {
             'name': self.name,
-            'value': self.value,
+            'value': value,
         }
         
         if self.domain:
@@ -96,10 +112,19 @@ class Cookie:
         return None  # Если ни один формат не подошёл
     
     def __str__(self) -> str:
-        return f"Cookie(name='{self.name}', value='{self.value}', domain='{self.domain}', path='{self.path}')"
-    
+        val = self.value
+        if isinstance(val, dict):
+            val = json.dumps(val, separators=(",", ":"))
+        return f"Cookie(name='{self.name}', value='{val}', domain='{self.domain}', path='{self.path}')"
+
     def __repr__(self) -> str:
-        return f"Cookie(name='{self.name}', value='{self.value}', domain='{self.domain}', path='{self.path}', secure={self.secure}, http_only={self.http_only})"
+        val = self.value
+        if isinstance(val, dict):
+            val = json.dumps(val, separators=(",", ":"))
+        return (
+            "Cookie(name='{name}', value='{val}', domain='{domain}', path='{path}', "
+            "secure={secure}, http_only={http_only})"
+        ).format(name=self.name, val=val, domain=self.domain, path=self.path, secure=self.secure, http_only=self.http_only)
 
 
 class HttpMethod(Enum):
