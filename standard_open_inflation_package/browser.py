@@ -226,6 +226,16 @@ class BaseAPI:
     @request_modifier_func.setter
     def request_modifier_func(self, value: Callable | None) -> None:
         self._request_modifier_func = value
+
+    @property
+    def playwright_context(self):
+        """Возвращает текущий Playwright browser context."""
+        return self._bcontext
+
+    @property
+    def playwright_browser(self):
+        """Возвращает текущий Playwright browser."""
+        return self._browser
     
 
     async def new_direct_fetch(self, url: str, handlers: Handler | List[Handler] = Handler.MAIN(), wait_selector: Optional[str] = None) -> List[Union[HandlerSearchSuccess, HandlerSearchFailed]]:  

@@ -21,18 +21,13 @@ class Page:
         self.API = api
         self._page = page
 
+
     @property
-    def url(self) -> str:
-        """
-        Возвращает URL текущей страницы.
-        
-        Returns:
-            str: URL текущей страницы.
-        """
+    def playwright_page(self):
+        """Возвращает объект Playwright Page."""
         if not self._page:
             raise RuntimeError(CFG.LOGS.PAGE_NOT_AVAILABLE)
-        
-        return self._page.url or "about:blank"
+        return self._page
 
     @property
     def domain(self) -> str:
@@ -45,7 +40,7 @@ class Page:
         if not self._page:
             raise RuntimeError(CFG.LOGS.PAGE_NOT_AVAILABLE)
         
-        current_url = self.url
+        current_url = self.playwright_page.url
         if current_url and current_url != "about:blank":
             parsed_url = urlparse(current_url)
             return parsed_url.netloc or "localhost"
@@ -64,7 +59,7 @@ class Page:
             raise RuntimeError(CFG.LOGS.PAGE_NOT_AVAILABLE)
         
         # Получаем cookies в формате Playwright
-        return await self.API.get_cookies(self.url)
+        return await self.API.get_cookies(self.playwright_page.url)
 
 
     async def add_cookies(self, cookies: Union[dict, Cookie, List[Cookie]]) -> None:

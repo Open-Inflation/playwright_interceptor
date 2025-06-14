@@ -124,6 +124,20 @@ async def test_cookie_object_functionality():
 
 
 @pytest.mark.asyncio
+async def test_cookie_json_autodetect():
+    """Проверяет автодекодирование JSON и urlencoded значений."""
+    c1 = Cookie(name="json", value="j:{\"a\":1}", domain="test.com")
+    assert isinstance(c1.value, dict) and c1.value["a"] == 1
+    d = c1.to_playwright_dict()
+    assert d["value"] == "{\"a\":1}"
+
+    c2 = Cookie(name="enc", value="j%3A%7B%22b%22%3A2%7D", domain="test.com")
+    assert isinstance(c2.value, dict) and c2.value["b"] == 2
+    d2 = c2.to_playwright_dict()
+    assert d2["value"] == "{\"b\":2}"
+
+
+@pytest.mark.asyncio
 async def test_get_cookies():
     async with api_page_session(timeout=DEFAULT_TIMEOUT) as (api, page):
         await page.direct_fetch("https://example.com", wait_selector="body")
