@@ -1,4 +1,4 @@
-# Standard Open Inflation Package
+# NetworkInterceptor
 
 [![GitHub Actions](https://github.com/Open-Inflation/standard_open_inflation_package/workflows/API%20Tests/badge.svg)](https://github.com/Open-Inflation/standard_open_inflation_package/actions/workflows/check_tests.yml?query=branch%3Amain)
 ![Python Version](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -8,380 +8,610 @@
 [![Discord](https://img.shields.io/discord/792572437292253224?label=Discord&labelColor=%232c2f33&color=%237289da)](https://discord.gg/UnJnGHNbBp)
 [![Telegram](https://img.shields.io/badge/Telegram-24A1DE)](https://t.me/miskler_dev)
 
-Библиотека для автоматизации веб-скрапинга и взаимодействия с API через управляемый браузер.
+**Мощный addon для Playwright, предоставляющий продвинутые возможности перехвата и модификации HTTP-запросов и ответов.**
 
-Основное назначение - обход антибот систем и работа с современными веб-приложениями, которые требуют выполнения JavaScript, установки сессионных cookie или специфичной логики авторизации.
+## ✨ Возможности
 
-## Ключевые возможности
+- 🔧 **Модификация запросов** - Изменяйте HTTP-запросы перед отправкой на сервер
+- 🔄 **Модификация ответов** - Изменяйте ответы сервера перед передачей в браузер  
+- 🎯 **Гибкая фильтрация** - Захватывайте только нужные запросы по URL, методу и типу контента
+- 🚀 **Асинхронная поддержка** - Работа с sync и async функциями модификации
+- 🔗 **Множественные хендлеры** - Последовательная обработка запросов несколькими хендлерами
+- 📊 **Детальная аналитика** - Получайте подробную информацию о перехваченных запросах
+- 🛡️ **Типобезопасность** - Полная поддержка типов с beartype
+- ⚡ **Новый API** - Прямой доступ к свойствам для максимальной производительности
 
-- Автоматизированный браузер на основе Camoufox (Firefox) 
-- Поддержка прокси с автоматическим определением из переменных окружения
-- Инъекция заголовков и управление cookie
-- Перехват сетевых запросов 
-- Два метода получения данных: direct fetch и inject fetch
-- Модульная архитектура
-- Типизация с beartype
-- Асинхронная архитектура
+## 🆕 Что нового в версии 2.0
 
-## Установка
+- **Обновленный Request API**: Прямой доступ к свойствам (`request.headers["key"] = "value"`)
+- **Новый Response API**: `content` поле с bytes + `content_parse()` метод для парсинга
+- **Улучшенная производительность**: Меньше вызовов методов, более быстрая модификация
+- **Лучшая типобезопасность**: Полное покрытие типов с beartype
+
+> 📖 **Миграция с версии 1.x**: См. [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) для подробностей обновления
+
+## 📦 Установка
 
 ```bash
 pip install standard-open-inflation-package
 ```
 
-## Быстрый старт
-
-### Базовое использование
+## 🚀 Быстрый старт
 
 ```python
+from playwright.async_api import async_playwright
+from standard_open_inflation_package import NetworkInterceptor, Handler, Execute, Request, Response
 import asyncio
-from standard_open_inflation_package import BaseAPI, Handler
 
 async def main():
-    # Инициализация API с настройками
-    api = BaseAPI(
-        timeout=30.0,             # Таймаут запросов
-        proxy="http://proxy:8080" # Опциональный прокси
+    async with async_playwright() as pw:
+        browser = await pw.firefox.launch()
+        page = await browser.new_page()
+
+        interceptor = NetworkInterceptor(page)
+        
+        # Перехватываем и модифицируем запросы и ответы
+        handler = Handler.ALL(execute=Execute.ALL(
+            request_modify=modify_request,
+            response_modify=modify_response,
+            max_modifications=5,
+            max_responses=2
+        ))
+        
+        # Запускаем перехват
+        results, _ = await asyncio.gather(
+            interceptor.execute(handler),
+            page.goto("https://httpbin.org/get")
+        )
+        
+        print(f"Результаты: {results}")
+        await browser.close()
+
+def modify_request(request: Request) -> Request:
+    """Модифицирует запрос перед отправкой"""
+    # Новый API v2.0 - прямой доступ к свойствам
+    request.headers["X-Custom-Header"] = "ModifiedByInterceptor"
+    request.params["intercepted"] = "true"
+    return request
+
+def modify_response(response: Response) -> Response:
+    """Модифицирует ответ после получения"""
+    response.response_headers["X-Response-Modified"] = "true"
+    
+    # Парсим содержимое и модифицируем JSON
+    parsed_content = response.content_parse()
+    if isinstance(parsed_content, dict):
+        parsed_content["_intercepted"] = True
+        # Обновляем содержимое
+        import json
+        response.content = json.dumps(parsed_content).encode('utf-8')
+    
+    return response
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## 📚 Основные компоненты
+
+### 🎛️ NetworkInterceptor
+
+Главный класс для перехвата HTTP-трафика на странице Playwright.
+
+```python
+from standard_open_inflation_package import NetworkInterceptor
+
+# Создание перехватчика
+interceptor = NetworkInterceptor(page, logger=custom_logger)
+
+# Выполнение перехвата
+results = await interceptor.execute(handlers, timeout=30.0)
+```
+
+**Параметры:**
+- `page` - Страница Playwright для перехвата
+- `logger` - Опциональный логгер (по умолчанию создается автоматически)
+
+**Методы:**
+- `execute(handlers, timeout=10.0)` - Запускает перехват с указанными хендлерами
+
+### 🎯 Handler
+
+Определяет правила захвата и обработки запросов.
+
+```python
+from standard_open_inflation_package import Handler, Execute, ExpectedContentType, HttpMethod
+
+# Различные типы хендлеров
+handler_return = Handler.RETURN(
+    expected_content=ExpectedContentType.JSON,
+    startswith_url="https://api.example.com",
+    method=HttpMethod.GET,
+    execute=Execute.RETURN(max_responses=3)
+)
+
+handler_modify = Handler.MODIFY(
+    expected_content=ExpectedContentType.ANY,
+    execute=Execute.MODIFY(
+        request_modify=my_request_modifier,
+        response_modify=my_response_modifier,
+        max_modifications=5
+    )
+)
+
+handler_all = Handler.ALL(
+    slug="my_handler",
+    expected_content=ExpectedContentType.JSON,
+    startswith_url="https://api.example.com",
+    method=HttpMethod.POST,
+    execute=Execute.ALL(
+        request_modify=my_request_modifier,
+        response_modify=my_response_modifier,
+        max_modifications=3,
+        max_responses=2
+    )
+)
+```
+
+**Параметры:**
+- `expected_content` - Тип ожидаемого контента (JSON, JS, CSS, IMAGE, etc.)
+- `startswith_url` - Фильтр по началу URL
+- `method` - HTTP-метод для фильтрации
+- `execute` - Конфигурация выполнения
+- `slug` - Уникальный идентификатор хендлера
+
+**Фабричные методы:**
+- `Handler.RETURN()` - Только перехват без модификации
+- `Handler.MODIFY()` - Только модификация без возврата данных
+- `Handler.ALL()` - Перехват и модификация
+- `Handler.NONE()` - Пустой хендлер
+
+### ⚙️ Execute
+
+Конфигурирует поведение хендлера.
+
+```python
+from standard_open_inflation_package import Execute
+
+# Только перехват
+execute_return = Execute.RETURN(max_responses=5)
+
+# Только модификация
+execute_modify = Execute.MODIFY(
+    request_modify=modify_request,
+    max_modifications=3
+)
+
+execute_modify_response = Execute.MODIFY(
+    response_modify=modify_response,
+    max_modifications=2
+)
+
+# Перехват и модификация
+execute_all = Execute.ALL(
+    request_modify=modify_request,
+    response_modify=modify_response,
+    max_modifications=5,
+    max_responses=3
+)
+```
+
+**Режимы работы:**
+- `RETURN` - Перехватывает запросы и возвращает данные
+- `MODIFY` - Модифицирует запросы/ответы (требуется хотя бы один из модификаторов)
+- `ALL` - Комбинирует перехват и модификацию
+
+**Параметры:**
+- `request_modify` - Функция для модификации запросов
+- `response_modify` - Функция для модификации ответов
+- `max_modifications` - Максимальное количество модификаций
+- `max_responses` - Максимальное количество перехваченных ответов
+
+### 📨 Request
+
+Представляет HTTP-запрос с возможностью модификации.
+
+```python
+from standard_open_inflation_package import Request, HttpMethod
+
+# Создание запроса
+request = Request(
+    url="https://api.example.com/users",
+    headers={"Authorization": "Bearer token"},
+    params={"page": "1", "limit": "10"},
+    body={"name": "John"},
+    method=HttpMethod.POST
+)
+
+# Модификация запроса
+request.add_header("X-Custom", "value")
+request.add_param("filter", "active")
+request.set_method(HttpMethod.PUT)
+request.set_body({"updated": "data"})
+
+# Получение финального URL
+final_url = request.real_url  # URL с параметрами
+```
+
+**Свойства:**
+- `url` - Базовый URL без параметров
+- `real_url` - Финальный URL с параметрами
+- `headers` - Словарь заголовков
+- `params` - Словарь параметров запроса
+- `body` - Тело запроса (dict или str)
+- `method` - HTTP-метод
+
+**Методы модификации:**
+- `add_header(name, value)` - Добавить заголовок
+- `add_headers(headers_dict)` - Добавить множественные заголовки
+- `add_param(name, value)` - Добавить параметр
+- `add_params(params_dict)` - Добавить множественные параметры
+- `remove_header(name)` - Удалить заголовок
+- `remove_param(name)` - Удалить параметр
+- `set_body(body)` - Установить тело запроса
+- `set_method(method)` - Установить HTTP-метод
+
+### 📨 Response
+
+Представляет HTTP-ответ с возможностью модификации.
+
+```python
+from standard_open_inflation_package import Response
+
+# Response создается автоматически перехватчиком
+def modify_response(response: Response) -> Response:
+    # Модификация заголовков
+    response.response_headers["X-Modified"] = "true"
+    response.response_headers["Cache-Control"] = "no-cache"
+    
+    # Модификация JSON-контента
+    parsed_content = response.content_parse()
+    if isinstance(parsed_content, dict):
+        parsed_content["_intercepted"] = True
+        parsed_content["_timestamp"] = "2025-06-15"
+        # Обновляем содержимое
+        import json
+        response.content = json.dumps(parsed_content).encode('utf-8')
+    
+    return response
+```
+
+**Свойства:**
+- `status` - HTTP-статус код
+- `url` - URL запроса
+- `request_headers` - Заголовки запроса
+- `response_headers` - Заголовки ответа (можно модифицировать)
+- `content` - Содержимое ответа в виде bytes
+- `duration` - Время выполнения запроса в секундах
+
+**Методы:**
+- `content_parse()` - Парсит содержимое в Python-объекты (dict, list, str, BytesIO)
+
+### 🏷️ Enum классы
+
+#### ExpectedContentType
+```python
+from standard_open_inflation_package import ExpectedContentType
+
+ExpectedContentType.JSON        # application/json
+ExpectedContentType.JS          # application/javascript
+ExpectedContentType.CSS         # text/css
+ExpectedContentType.IMAGE       # image/*
+ExpectedContentType.VIDEO       # video/*
+ExpectedContentType.AUDIO       # audio/*
+ExpectedContentType.FONT        # font/*
+ExpectedContentType.APPLICATION # application/*
+ExpectedContentType.ARCHIVE     # archive formats
+ExpectedContentType.TEXT        # text/*
+ExpectedContentType.ANY         # любой тип
+```
+
+#### HttpMethod
+```python
+from standard_open_inflation_package import HttpMethod
+
+HttpMethod.GET
+HttpMethod.POST  
+HttpMethod.PUT
+HttpMethod.DELETE
+HttpMethod.PATCH
+HttpMethod.HEAD
+HttpMethod.OPTIONS
+HttpMethod.ANY      # любой метод
+```
+
+### 📊 Результаты
+
+Перехватчик возвращает список результатов для каждого хендлера:
+
+```python
+# HandlerSearchSuccess - успешный перехват
+class HandlerSearchSuccess:
+    responses: List[Response]  # Перехваченные ответы
+    duration: float           # Время работы хендлера
+    handler_slug: str        # Идентификатор хендлера
+
+# HandlerSearchFailed - неудачный перехват  
+class HandlerSearchFailed:
+    rejected_responses: List[Response]  # Отклоненные ответы
+    duration: float                    # Время работы хендлера
+    handler_slug: str                 # Идентификатор хендлера
+```
+
+## 💡 Примеры использования
+
+### 🔐 Добавление аутентификации к запросам
+
+```python
+def add_auth(request: Request) -> Request:
+    """Добавляет токен аутентификации ко всем API запросам"""
+    if "/api/" in request.url:
+        request.add_header("Authorization", "Bearer your-token")
+    return request
+
+handler = Handler.ALL(
+    startswith_url="https://api.example.com",
+    execute=Execute.MODIFY(request_modify=add_auth, max_modifications=10)
+)
+```
+
+### 📊 Добавление аналитики к ответам
+
+```python
+async def add_analytics(response: Response) -> Response:
+    """Добавляет аналитические данные к JSON ответам"""
+    parsed_content = response.content_parse()
+    if isinstance(parsed_content, dict):
+        parsed_content["_analytics"] = {
+            "intercepted_at": datetime.now().isoformat(),
+            "response_time_ms": response.duration * 1000,
+            "status_code": response.status
+        }
+        # Обновляем содержимое
+        import json
+        response.content = json.dumps(parsed_content).encode('utf-8')
+    return response
+
+handler = Handler.ALL(
+    expected_content=ExpectedContentType.JSON,
+    execute=Execute.ALL(
+        response_modify=add_analytics,
+        max_modifications=5,
+        max_responses=3
+    )
+)
+```
+
+### 🛡️ Добавление заголовков безопасности
+
+```python
+def add_security_headers(response: Response) -> Response:
+    """Добавляет заголовки безопасности ко всем ответам"""
+    security_headers = {
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY", 
+        "X-XSS-Protection": "1; mode=block",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains"
+    }
+    response.response_headers.update(security_headers)
+    return response
+
+handler = Handler.ALL(
+    execute=Execute.MODIFY(response_modify=add_security_headers, max_modifications=20)
+)
+```
+
+### 🔍 Перехват и анализ API вызовов
+
+```python
+captured_api_calls = []
+
+def capture_api_response(response: Response) -> Response:
+    """Сохраняет информацию о всех API вызовах"""
+    if "/api/" in response.url:
+        captured_api_calls.append({
+            "url": response.url,
+            "status": response.status,
+            "duration": response.duration,
+            "response_size": len(response.content) if response.content else 0
+        })
+    return response
+
+handler = Handler.ALL(
+    startswith_url="https://api.example.com",
+    execute=Execute.ALL(
+        response_modify=capture_api_response,
+        max_modifications=50,
+        max_responses=10
+    )
+)
+
+# После выполнения
+print(f"Перехвачено {len(captured_api_calls)} API вызовов")
+```
+
+### 🚀 Множественные хендлеры
+
+```python
+async def run_multiple_handlers():
+    """Демонстрация работы с несколькими хендлерами"""
+    
+    # Хендлер для модификации запросов
+    request_handler = Handler.MODIFY(
+        slug="request_modifier",
+        execute=Execute.MODIFY(
+            request_modify=add_tracking,
+            max_modifications=10
+        )
     )
     
-    # Создание сессии браузера
-    await api.new_session(include_browser=True)
+    # Хендлер для модификации ответов
+    response_handler = Handler.MODIFY(
+        slug="response_modifier", 
+        expected_content=ExpectedContentType.JSON,
+        execute=Execute.MODIFY(
+            response_modify=add_metadata,
+            max_modifications=10
+        )
+    )
     
+    # Хендлер для сбора данных
+    collector_handler = Handler.ALL(
+        slug="data_collector",
+        startswith_url="https://api.example.com",
+        execute=Execute.ALL(
+            response_modify=collect_data,
+            max_modifications=5,
+            max_responses=5
+        )
+    )
+    
+    # Запуск всех хендлеров
+    results = await interceptor.execute([
+        request_handler,
+        response_handler, 
+        collector_handler
+    ])
+    
+    for result in results:
+        print(f"Хендлер {result.handler_slug}: {len(result.responses)} ответов за {result.duration:.2f}с")
+```
+
+## 🔧 Расширенные возможности
+
+### ⚡ Асинхронные модификаторы
+
+```python
+async def async_request_modifier(request: Request) -> Request:
+    """Асинхронная модификация запроса"""
+    # Можно выполнять асинхронные операции
+    await asyncio.sleep(0.01)  # Имитация async операции
+    
+    request.add_header("X-Async-Modified", "true")
+    return request
+
+async def async_response_modifier(response: Response) -> Response:
+    """Асинхронная модификация ответа"""
+    # Асинхронная обработка данных
+    parsed_content = response.content_parse()
+    if isinstance(parsed_content, dict):
+        # Например, валидация или обогащение данных
+        parsed_content["_processed_async"] = True
+        # Обновляем содержимое
+        import json
+        response.content = json.dumps(parsed_content).encode('utf-8')
+    
+    return response
+
+handler = Handler.ALL(
+    execute=Execute.ALL(
+        request_modify=async_request_modifier,
+        response_modify=async_response_modifier,
+        max_modifications=5,
+        max_responses=3
+    )
+)
+```
+
+### 🎯 Сложная фильтрация
+
+```python
+# Перехват только POST запросов к API аутентификации
+auth_handler = Handler.ALL(
+    method=HttpMethod.POST,
+    startswith_url="https://api.example.com/auth",
+    expected_content=ExpectedContentType.JSON,
+    execute=Execute.ALL(
+        request_modify=log_auth_requests,
+        response_modify=process_auth_response,
+        max_modifications=3,
+        max_responses=1
+    )
+)
+
+# Перехват всех изображений
+image_handler = Handler.RETURN(
+    expected_content=ExpectedContentType.IMAGE,
+    execute=Execute.RETURN(max_responses=10)
+)
+
+# Модификация всех CSS файлов
+css_handler = Handler.MODIFY(
+    expected_content=ExpectedContentType.CSS,
+    execute=Execute.MODIFY(
+        response_modify=optimize_css,
+        max_modifications=5
+    )
+)
+```
+
+## 🐛 Обработка ошибок
+
+```python
+def safe_request_modifier(request: Request) -> Request:
+    """Безопасная модификация запроса с обработкой ошибок"""
     try:
-        # Простой запрос через direct fetch
-        response = await api.new_direct_fetch(
-            url="https://api.example.com/data",
-            handler=Handler.JSON()  # Обработчик для JSON
-        )
-        
-        print(f"Статус: {response.status}")
-        print(f"Данные: {response.response}")
-        print(f"Время выполнения: {response.duration:.3f}с")
-    finally:
-        await api.close(include_browser=True)
-
-asyncio.run(main())
-```
-
-### Работа с сессионными токенами и авторизацией
-
-Многие современные сайты требуют выполнения определенной логики для получения сессионных токенов перед API запросами.
-
-```python
-import asyncio
-import json
-from standard_open_inflation_package import BaseAPI, Handler, Request, NetworkError
-
-class SessionBasedScraper:
-    def __init__(self):
-        self._page = None
-        self.api = BaseAPI(
-            timeout=60.0,
-            start_func=self.initialize_session,  # Инициализация сессии
-            request_modifier_func=self.modify_request  # Модификация запросов inject_fetch
-        )
-        
-    async def __aenter__(self):
-        """
-        Асинхронный контекстный менеджер для автоматического создания сессии.
-        """
-        self.api.new_session()
-        return self
-    
-    async def __aexit__(self, exc_type, exc_value, traceback):
-        """
-        Асинхронный контекстный менеджер для автоматического закрытия сессии.
-        """
-        await self.api.close(include_browser=True)
-
-    async def initialize_session(self, api: BaseAPI):
-        """
-        Выполняется после создания сессии браузера.
-        Здесь мы загружаем главную страницу для получения сессионных токенов, либо инициализировать страницу для своих функций.
-        """
-        self._page = await api.new_page()
-    
-    async def modify_request(self, request: Request) -> Request:
-        """
-        Модифицирует объект Request перед каждым inject_fetch запросом.
-        Получает объект Request и возвращает его модифицированную версию.
-        """
-        # Например логика сайта требует наличия токена в заголовке
-        cookies = self.api.get_cookies()
-        token = json.loads(cookies["session"])["access_token"]
-        request.add_header("Authorization", f"Bearer {token}")
-
-        # Можем добавить дополнительные параметры
-        request.add_param("client", "web")
-        
+        # Ваша логика модификации
+        request.add_header("X-Safe-Modified", "true")
         return request
-    
-    async def get_api_data(self):
-        """Получение данных через API с правильными заголовками"""
-        # API запрос с автоматической подстановкой токена
-        result = await page.inject_fetch("https://example.com/api/products")
-        
-        if isinstance(result, NetworkError):
-            print(f"Ошибка сети: {result.name} - {result.message}")
-            return None
-        else:
-            if result.status == 200:
-                return result.response
-            else:
-                ...
+    except Exception as e:
+        print(f"Ошибка модификации запроса: {e}")
+        return request  # Возвращаем немодифицированный запрос
 
-# Использование
-async def main():
-    scraper = SessionBasedScraper()
-    data = await scraper.get_api_data()
-    
-    if data:
-        print(f"Получено {len(data.get('products', []))} товаров")
-    else:
-        print("Не удалось получить данные")
-
-asyncio.run(main())
+def safe_response_modifier(response: Response) -> Response:
+    """Безопасная модификация ответа с обработкой ошибок"""
+    try:
+        parsed_content = response.content_parse()
+        if isinstance(parsed_content, dict):
+            parsed_content["_safe_modified"] = True
+            # Обновляем содержимое
+            import json
+            response.content = json.dumps(parsed_content).encode('utf-8')
+        return response
+    except Exception as e:
+        print(f"Ошибка модификации ответа: {e}")
+        return response  # Возвращаем немодифицированный ответ
 ```
 
-### Утилиты для работы с прокси
+## 📝 Логирование
 
 ```python
-from standard_open_inflation_package import get_env_proxy, parse_proxy
 import logging
 
-# Получение прокси из переменных окружения
-proxy = get_env_proxy()
-print(f"Прокси из env: {proxy}")
+# Настройка кастомного логгера
+logger = logging.getLogger("my_interceptor")
+logger.setLevel(logging.DEBUG)
+handler = logging.StreamHandler()
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
 
-# Парсинг прокси-строки для Camoufox
-logger = logging.getLogger(__name__)
-parsed = parse_proxy("user:pass@proxy.example.com:8080", trust_env=True, logger=logger)
-print(f"Парсед прокси: {parsed}")
+# Использование с кастомным логгером
+interceptor = NetworkInterceptor(page, logger=logger)
 ```
 
-### Генерация документации
+## ⚠️ Важные замечания
 
-```python
-from standard_open_inflation_package.utils.docs_generator import generate_docs_index
+1. **Последовательность модификаций**: При использовании множественных хендлеров модификации применяются последовательно в порядке следования хендлеров.
 
-# Генерация индексной страницы
-success = generate_docs_index("docs")
-```
+2. **Валидация Execute**: Для режимов `MODIFY` и `ALL` требуется указать хотя бы один из модификаторов (`request_modify` или `response_modify`).
 
-Или через командную строку:
-```bash
-soip-generate-docs-index docs
-```
+3. **Уникальные slug**: При использовании множественных хендлеров убедитесь, что у каждого уникальный `slug`.
 
-## API Reference
+4. **Производительность**: Модификации происходят синхронно с обработкой запросов, поэтому избегайте тяжелых операций в модификаторах.
 
-### Основные классы
+5. **Типобезопасность**: Все функции модификации должны возвращать объекты соответствующих типов (`Request` или `Response`).
 
-#### `BaseAPI`
-Главный класс для управления браузером и сессиями.
+## 📄 Лицензия
 
-**Параметры конструктора:**
-- `proxy: str | None = None` - прокси-сервер
-- `autoclose_browser: bool = False` - автоматически закрывать браузер
-- `trust_env: bool = False` - доверять переменным окружения для прокси
-- `timeout: float = 10.0` - таймаут операций в секундах
-- `start_func: Callable | None = None` - **функция инициализации сессии**
-- `request_modifier_func: Callable | None = None` - **функция модификации объекта Request**
+MIT License - подробности в файле [LICENSE](LICENSE).
 
-**О start_func:**
-Функция, которая выполняется один раз при создании новой сессии браузера. Используется для:
-- Загрузки главной страницы для получения сессионных cookie
-- Выполнения авторизации
-- Инициализации токенов доступа
-- Настройки состояния приложения
+## 🤝 Поддержка
 
-**О request_modifier_func:**
-Функция, которая вызывается перед каждым `inject_fetch` запросом для модификации объекта Request. Используется для:
-- Подстановки токенов авторизации из cookie
-- Динамической генерации заголовков на основе состояния сессии
-- Добавления/удаления параметров запроса
-- Обхода защиты сайтов, требующих специфичные заголовки
+- 💬 [Discord сообщество](https://discord.gg/UnJnGHNbBp)
+- 📱 [Telegram канал](https://t.me/miskler_dev)
+- 🐛 [Сообщить об ошибке](https://github.com/Open-Inflation/standard_open_inflation_package/issues)
 
-**Основные методы:**
-- `new_session(include_browser=False)` - создать новую сессию
-- `new_page()` - создать новую страницу
-- `new_direct_fetch(url, handler, wait_selector)` - быстрый запрос
-- `get_cookies()` - получить текущие cookie
-- `close(include_browser=False)` - закрыть соединения
+## 🏆 Благодарности
 
-#### `Page`
-Класс для взаимодействия со страницами браузера.
-
-**Основные методы:**
-- `direct_fetch(url, handler, wait_selector)` - **прямой переход браузера на URL**
-- `inject_fetch(url, method, body)` - **JavaScript-инъекция запроса без перехода**
-- `close()` - закрыть страницу
-
-**Разница между методами:**
-
-`direct_fetch` - имитирует переход пользователя на страницу:
-- Браузер реально переходит на указанный URL
-- Выполняется весь JavaScript страницы
-- Устанавливаются все cookie и состояние страницы
-- Подходит для получения HTML контента и инициализации сессий
-
-`inject_fetch` - выполняет API запрос через JavaScript:
-- Браузер остается на текущей странице  
-- Запрос выполняется в контексте текущей страницы
-- Используются cookie и состояние текущей страницы
-- Подходит для API запросов с сохранением контекста сессии
-
-#### `Handler`
-Указывает direct_fetch какой контент требуется получить.
-Перехватывает и возвращает первый подходящий элемент.
-
-**Статические методы:**
-- `Handler.MAIN()` - основная страница URL == REQUEST URL
-- `Handler.SIDE()` - второстепенная страница URL != REQUEST URL
-- `Handler.ANY()` - любой URL
-- `Handler.NONE()` - хандлер отладки, ничего не ловит и ждет таймаута, после чего возвращает полный сетевой стек С СОДЕРЖИМЫМ! (уникальная способность этого хандлера)
-
-Каждый из перечисленных принимает:
-- `expected_content` (ExpectedContentType) - тип ожидаемого контента.
-- `startswith_url` (str) - URL с которого должен начинаться интересующий запрос.
-- `method` (HttpMethod) - HTTP метод интересующего запроса.
-- `max_response` (int) - максимальное количество ответов. По умолчанию `None` - т.е. хандлер будет искать подходящие ответы пока не наступит `timeout`, если вы точно знаете, сколько вам нужно ответов, то как только все хандлеры найдут свои ответы - они завершат функцию недожидаясь таймаута и вернут ответы.
-- `slug` (str) - уникальное имя хандлера, полезно если в рамках одного запроса вы назначаете несколько разных хандлеров - `HandlerSearchSuccess` и `HandlerSearchFailed` имеют параметр `handler_slug`. Так можно определить какому хандлеру соответствует ответ. Если `slug` не назначен, он будет сгенерирован случайно перед началом поиска.
-
-#### `ExpectedContentType`
-Enum перечисление типов ожидаемого контента: `JSON`, `JS`, `CSS`, `IMAGE`, `VIDEO`, `AUDIO`, `FONT`, `APPLICATION` (PDF, XLS, DOCX, BIN, EXE и подобное), `ARCHIVE`, `TEXT` (в том числе HTML). Если это неважно - используйте `ExpectedContentType.ANY`.
-
-#### `HttpMethod`
-Enum перечисление HTTP методов: GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS. Если это неважно - используйте `HttpMethod.ANY`.
-
-#### `Response`
-Объект ответа с данными запроса.
-
-**Атрибуты:**
-- `status: int` - HTTP статус
-- `request_headers: dict` - заголовки запроса
-- `response_headers: dict` - заголовки ответа  
-- `response: Union[dict, list, str, BytesIO]` - данные ответа
-- `duration: float` - время выполнения в секундах
-
-#### `NetworkError`
-Объект ошибки сети.
-
-**Атрибуты:**
-- `name: str` - имя ошибки
-- `message: str` - сообщение об ошибке
-- `details: dict` - детали ошибки
-- `timestamp: str` - время возникновения
-- `duration: float` - время выполнения в секундах
-
-### Утилиты
-
-#### `get_env_proxy() -> Union[str, None]`
-Получает прокси из переменных окружения (HTTP_PROXY, HTTPS_PROXY, http_proxy, https_proxy).
-
-#### `parse_proxy(proxy_str, trust_env, logger) -> Union[Dict[str, str], None]`
-Парсит строку прокси в словарь для Camoufox. Поддерживает форматы:
-- `host:port`
-- `user:pass@host:port`
-- `http://user:pass@host:port`
-
-#### `generate_docs_index(docs_dir: str = "docs") -> bool`
-Генерирует HTML индексную страницу для директории с документацией.
-
-## Примеры использования
-
-### Мониторинг API с обработкой ошибок
-
-```python
-import asyncio
-from standard_open_inflation_package import BaseAPI, Handler, NetworkError
-
-async def monitor_api():
-    api = BaseAPI(timeout=30.0)
-    await api.new_session(include_browser=True)
-    
-    page = await api.new_page()
-    
-    try:
-        # Попытка API запроса
-        result = await page.inject_fetch(
-            Request(
-                url="https://api.example.com/status",
-                method=HttpMethod.GET
-            )
-        )
-        
-        if isinstance(result, NetworkError):
-            print(f"Ошибка API: {result.name} - {result.message}")
-            print(f"Детали: {result.details}")
-        else:
-            print(f"API работает: {result.response}")
-            
-    finally:
-        await page.close()
-        await api.close(include_browser=True)
-
-asyncio.run(monitor_api())
-```
-
-### Скрапинг с ожиданием динамического контента
-
-```python
-import asyncio
-from standard_open_inflation_package import BaseAPI, Handler
-
-async def scrape_dynamic_content():
-    api = BaseAPI()
-    await api.new_session(include_browser=True)
-    
-    try:
-        # Получаем данные с ожиданием загрузки
-        response = await api.new_direct_fetch(
-            url="https://example.com/dynamic-page",
-            handler=Handler.MAIN(),
-            wait_selector=".dynamic-content"  # Ждем появления элемента
-        )
-        
-        print(f"Контент загружен за {response.duration:.2f}с")
-        print(f"Размер: {len(response.response)} символов")
-        
-    finally:
-        await api.close(include_browser=True)
-
-asyncio.run(scrape_dynamic_content())
-```
-
-## Разработка и тестирование
-
-```bash
-# Клонирование репозитория
-git clone https://github.com/Open-Inflation/standard_open_inflation_package.git
-cd standard_open_inflation_package
-
-# Установка в режиме разработки
-pip install -e .
-
-# Запуск тестов
-pytest
-```
-
-## Конфигурация
-
-Все константы и настройки централизованы в модуле `config.py`:
-
-- Таймауты и лимиты
-- Content-Type константы  
-- Сообщения об ошибках и логирования
-- Пути к файлам и расширения
-- Значения по умолчанию
-
-## Архитектура
-
-Библиотека построена на модульной архитектуре:
-
-- **`browser.py`** - управление браузером и сессиями
-- **`page.py`** - взаимодействие со страницами и выполнение запросов
-- **`models.py`** - модели данных (Request, Response, NetworkError, Handler, HttpMethod)
-- **`tools.py`** - утилиты для работы с прокси и парсинга данных
-- **`config.py`** - централизованная конфигурация констант
-- **`utils/`** - дополнительные утилиты (генератор index страницы документации scheme for humans)
+Спасибо всем участникам проекта за вклад в развитие библиотеки! 🙏
