@@ -1,63 +1,5 @@
-import os
-import re
-import logging
-from beartype.typing import Dict, Union
 from beartype import beartype
 from . import config as CFG
-
-
-@beartype
-def get_env_proxy() -> Union[str, None]:
-    """
-    Получает прокси из переменных окружения.
-    :return: Прокси-строка или None.
-    """
-    proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy") or os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy")
-    return proxy if proxy else None
-
-@beartype
-def parse_proxy(proxy_str: Union[str, None], trust_env: bool, logger: logging.Logger) -> Union[Dict[str, str], None]:
-    logger.debug(CFG.LOGS.PARSING_PROXY.format(proxy_string=proxy_str))
-
-    if not proxy_str:
-        if trust_env:
-            logger.debug(CFG.LOGS.PROXY_NOT_PROVIDED)
-            proxy_str = get_env_proxy()
-        
-        if not proxy_str:
-            logger.info(CFG.LOGS.NO_PROXY_FOUND)
-            return None
-        else:
-            logger.info(CFG.LOGS.PROXY_FOUND_IN_ENV)
-
-    # Example: user:pass@host:port or just host:port
-    match = re.match(CFG.NETWORK.PROXY, proxy_str)
-    
-    proxy_dict = {}
-    if not match:
-        logger.warning(CFG.ERRORS.PROXY_PATTERN_MISMATCH)
-        proxy_dict['server'] = proxy_str
-        
-        if not proxy_str.startswith(CFG.NETWORK.PROXY_HTTP_SCHEMES[0]) and not proxy_str.startswith(CFG.NETWORK.PROXY_HTTP_SCHEMES[1]):
-            logger.warning(CFG.ERRORS.PROXY_MISSING_PROTOCOL)
-            proxy_dict['server'] = f"{CFG.NETWORK.DEFAULT_HTTP_SCHEME}{proxy_str}"
-        
-        logger.info(CFG.LOGS.PROXY_PARSED_BASIC)
-        return proxy_dict
-    else:
-        match_dict = match.groupdict()
-        proxy_dict['server'] = f"{match_dict['scheme'] or CFG.NETWORK.DEFAULT_HTTP_SCHEME}{match_dict['host']}"
-        if match_dict['port']:
-            proxy_dict['server'] += f":{match_dict['port']}"
-        
-        for key in ['username', 'password']:
-            if match_dict[key]:
-                proxy_dict[key] = match_dict[key]
-        
-        logger.info(CFG.LOGS.PROXY_WITH_CREDENTIALS if 'username' in proxy_dict else CFG.LOGS.PROXY_WITHOUT_CREDENTIALS)
-        
-        logger.info(CFG.LOGS.PROXY_PARSED_REGEX)
-        return proxy_dict
 
 
 @beartype
@@ -72,7 +14,7 @@ def parse_content_type(content_type: str) -> dict[str, str]:
         Словарь с ключом 'content_type' для основного типа и всеми дополнительными параметрами
     """
     if not content_type:
-        return {'content_type': ''}
+        return {'content_type': '', 'charset': 'utf-8'}
     
     # Разбиваем строку на части и убираем лишние пробелы
     parts = [p.strip() for p in content_type.split(';')]

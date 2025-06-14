@@ -1,7 +1,5 @@
-camoufox[geoip]
 playwright
 beartype
 
 pytest
 pytest-asyncio
-pytest-xdist

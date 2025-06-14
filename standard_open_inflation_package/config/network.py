@@ -3,7 +3,6 @@ PROXY = r'^(?:(?P<scheme>https?:\/\/))?(?:(?P<username>[^:@]+):(?P<password>[^@]
 
 # Proxy constants
 PROXY_HTTP_SCHEMES = ['http://', 'https://']
-DEFAULT_HTTP_SCHEME = PROXY_HTTP_SCHEMES[0]
 
 # File extensions mapping
 IMAGE_EXTENSIONS = {
