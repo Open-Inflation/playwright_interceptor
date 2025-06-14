@@ -7,6 +7,7 @@ Standard Open Inflation Package
 """
 # Импорт основных классов из модульной структуры
 from .models import HttpMethod, Response, Request, Cookie
+from .execute import Execute, ExecuteAction
 from .browser import BaseAPI
 from .browser_engines import (
     BrowserEngine,
@@ -17,7 +18,7 @@ from .browser_engines import (
 from .page import Page
 
 # Версия пакета
-__version__ = "0.1.7.1"
+__version__ = "0.1.8"
 
 # Публичный API
 __all__ = [
@@ -33,5 +34,7 @@ __all__ = [
     'Request',
     'Response',
     'HttpMethod',
-    'Cookie'
+    'Cookie',
+    'Execute',
+    'ExecuteAction'
 ]

@@ -1,5 +1,6 @@
 import pytest
 from standard_open_inflation_package.handler import Handler, ExpectedContentType
+from standard_open_inflation_package.execute import Execute
 from io import BytesIO
 
 # Импортируем утилиты для тестирования
@@ -133,9 +134,10 @@ async def test_interceptor_max_responses():
     """Тест ANY handler'а - ожидаем множественные любые ответы"""
     max_resp = [1, 2, 3]  # Максимальное количество ответов, которые мы хотим перехватить
     async with api_session(DEFAULT_TIMEOUT) as api:
-        results = await api.new_direct_fetch(CHECK_HTML_PAGE, handlers=[
-            Handler.ALL(max_responses=max_resp[i]) for i in range(len(max_resp))
-        ])
+        results = await api.new_direct_fetch(
+            CHECK_HTML_PAGE,
+            handlers=[Handler.ALL(execute=Execute.RETURN(max_resp[i])) for i in range(len(max_resp))],
+        )
         assert len(results) == len(max_resp), f"Expected {len(max_resp)} result, got {len(results)}"
         result = results[0]
         
