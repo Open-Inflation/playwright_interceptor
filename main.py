@@ -2,6 +2,7 @@ from standard_open_inflation_package import BaseAPI, Request, Response, HttpMeth
 from standard_open_inflation_package.exceptions import NetworkError
 from standard_open_inflation_package import config as CFG
 from standard_open_inflation_package.handler import Handler, ExpectedContentType, HandlerSearchSuccess, HandlerSearchFailed
+from standard_open_inflation_package.execute import Execute
 from standard_open_inflation_package.browser_engines import BrowserEngine
 from pprint import pprint
 import time
@@ -49,7 +50,10 @@ class Sample:
         return await self.base_page.direct_fetch(
             url="https://5ka.ru/product/produkt-rassolnyy-sirtaki-original-dlya-grecheskog--3483307/",
             wait_selector=".priceContainer_productCent__J1bRL",
-            handlers=Handler.SIDE(expected_content=ExpectedContentType.IMAGE, max_responses=1)
+            handlers=Handler.SIDE(
+                expected_content=ExpectedContentType.IMAGE,
+                execute=Execute.RETURN(1),
+            )
         )
 
     async def get_categories(self):

@@ -114,7 +114,7 @@ class HttpMethod(Enum):
 
 
 @beartype
-@dataclass(frozen=True)
+@dataclass(frozen=False)
 class Response:
     """Класс для представления ответа от API"""
     

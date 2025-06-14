@@ -11,6 +11,7 @@ from . import config as CFG
 from .models import Response, Request, HttpMethod, Cookie
 from .exceptions import NetworkError
 from .handler import Handler, HandlerSearchFailed, HandlerSearchSuccess
+from .execute import Execute
 from .direct_request_interceptor import MultiRequestInterceptor
 
 
@@ -281,7 +282,7 @@ class Page:
         request_interceptor_handler = Handler.ALL(
             startswith_url=final_request.real_url,
             method=final_request.method,
-            max_responses=1 # Нам нужен только один запрос
+            execute=Execute.RETURN(1)  # Нам нужен только один запрос
         )
         
         self.API._logger.info(CFG.LOGS.INJECT_FETCH_INTERCEPTOR_SETUP.format(url=final_request.real_url))

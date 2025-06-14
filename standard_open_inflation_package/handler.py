@@ -1,4 +1,5 @@
 from .models import Response, HttpMethod
+from .execute import Execute
 from .tools import parse_content_type
 from beartype import beartype
 from beartype.typing import List, Optional
@@ -34,7 +35,7 @@ class Handler:
     expected_content: ExpectedContentType = ExpectedContentType.ANY
     startswith_url: Optional[str] = None
     method: HttpMethod = HttpMethod.ANY
-    max_responses: Optional[int] = None
+    execute: Execute = Execute.RETURN()
     slug: Optional[str] = None
 
     def __post_init__(self):
@@ -49,41 +50,46 @@ class Handler:
             parts.append(f"content_types={self.expected_content.name}")
         if self.method != HttpMethod.ANY:
             parts.append(f"method={self.method.value}")
-        if self.max_responses is not None:
-            parts.append(f"max_responses={self.max_responses}")
+        parts.append(f"execute={self.execute.action.name}")
         parts.append(f"slug='{self.slug}'")
         return f"Handler({', '.join(parts)})"
 
     @classmethod
-    def MAIN(cls,
-             expected_content: ExpectedContentType = ExpectedContentType.TEXT,
-             startswith_url: Optional[str] = None,
-             method: HttpMethod = HttpMethod.ANY,
-             max_responses: Optional[int] = 1,
-             slug: Optional[str] = None):
-        return cls(WatcherType.MAIN, expected_content, startswith_url, method, max_responses, slug)
+    def MAIN(
+        cls,
+        expected_content: ExpectedContentType = ExpectedContentType.TEXT,
+        startswith_url: Optional[str] = None,
+        method: HttpMethod = HttpMethod.ANY,
+        execute: Execute = Execute.RETURN(1),
+        slug: Optional[str] = None,
+    ):
+        return cls(WatcherType.MAIN, expected_content, startswith_url, method, execute, slug)
 
     @classmethod
-    def SIDE(cls,
-             expected_content: ExpectedContentType = ExpectedContentType.ANY,
-             startswith_url: Optional[str] = None,
-             method: HttpMethod = HttpMethod.ANY,
-             max_responses: Optional[int] = 1,
-             slug: Optional[str] = None):
-        return cls(WatcherType.SIDE, expected_content, startswith_url, method, max_responses, slug)
+    def SIDE(
+        cls,
+        expected_content: ExpectedContentType = ExpectedContentType.ANY,
+        startswith_url: Optional[str] = None,
+        method: HttpMethod = HttpMethod.ANY,
+        execute: Execute = Execute.RETURN(1),
+        slug: Optional[str] = None,
+    ):
+        return cls(WatcherType.SIDE, expected_content, startswith_url, method, execute, slug)
 
     @classmethod
-    def ALL(cls,
-            expected_content: ExpectedContentType = ExpectedContentType.ANY,
-            startswith_url: Optional[str] = None,
-            method: HttpMethod = HttpMethod.ANY,
-            max_responses: Optional[int] = 1,
-            slug: Optional[str] = None):
-        return cls(WatcherType.ALL, expected_content, startswith_url, method, max_responses, slug)
+    def ALL(
+        cls,
+        expected_content: ExpectedContentType = ExpectedContentType.ANY,
+        startswith_url: Optional[str] = None,
+        method: HttpMethod = HttpMethod.ANY,
+        execute: Execute = Execute.RETURN(1),
+        slug: Optional[str] = None,
+    ):
+        return cls(WatcherType.ALL, expected_content, startswith_url, method, execute, slug)
 
     @classmethod
     def NONE(cls, slug: Optional[str] = None):
-        return cls(WatcherType.ALL, startswith_url="!NONE!", slug=slug)
+        return cls(WatcherType.ALL, startswith_url="!NONE!", execute=Execute.RETURN(), slug=slug)
 
     def should_capture(self, resp, base_url: str) -> bool:
         """Определяет, должен ли handler захватить данный response"""

@@ -6,6 +6,7 @@ from .content_loader import parse_response_data
 from . import config as CFG
 from .models import Response
 from .handler import Handler, HandlerSearchFailed, HandlerSearchSuccess
+from .execute import ExecuteAction
 from playwright._impl._errors import TargetClosedError
 
 
@@ -33,6 +34,7 @@ class MultiRequestInterceptor:
         # Словарь для хранения результатов каждого хандлера (используем slug как ключ)
         self.handler_results: Dict[str, List[Response]] = {handler.slug: [] for handler in handlers}
         self.handler_errors: Dict[str, HandlerSearchFailed] = {}
+        self.handler_modifications: Dict[str, int] = {handler.slug: 0 for handler in handlers}
         
         # Future для завершения работы
         self.completion_future = self.loop.create_future()
@@ -65,10 +67,19 @@ class MultiRequestInterceptor:
         for handler in self.handlers:
             if handler.slug in self.handler_errors:
                 continue  # Пропускаем хандлеры, которые уже завершились с ошибкой
-                
-            # Проверяем, не достиг ли хендлер уже своего лимита
-            if handler.max_responses is not None and len(self.handler_results[handler.slug]) >= handler.max_responses:
-                continue  # Хендлер уже получил максимальное количество ответов
+
+            # Проверяем, не завершил ли хандлер все необходимые действия
+            done_return = True
+            done_modify = True
+            if handler.execute.action in (ExecuteAction.RETURN, ExecuteAction.ALL):
+                if handler.execute.max_responses is None or len(self.handler_results[handler.slug]) < handler.execute.max_responses:
+                    done_return = False
+            if handler.execute.action in (ExecuteAction.MODIFY, ExecuteAction.ALL):
+                if handler.execute.max_modifications is None or self.handler_modifications[handler.slug] < handler.execute.max_modifications:
+                    done_modify = False
+
+            if done_return and done_modify:
+                continue  # Хендлер завершил все действия
                 
             if handler.should_capture(mock_response, self.base_url):
                 capturing_handlers.append(handler)
@@ -108,17 +119,29 @@ class MultiRequestInterceptor:
                 url=response.url
             )
 
-            for handler in handlers:    
-                # Добавляем результат к хандлеру
-                self.handler_results[handler.slug].append(result)
-                
-                max_responses_text = handler.max_responses or CFG.LOGS.UNLIMITED_SIZE
-                self.api._logger.info(CFG.LOGS.HANDLER_CAPTURED_RESPONSE.format(
-                    handler_type=handler.expected_content,
-                    url=response.url,
-                    current_count=len(self.handler_results[handler.slug]),
-                    max_responses=max_responses_text
-                ))
+            for handler in handlers:
+                handler_result = result
+                if handler.execute.action in (ExecuteAction.MODIFY, ExecuteAction.ALL):
+                    if handler.execute.max_modifications is None or self.handler_modifications[handler.slug] < handler.execute.max_modifications:
+                        callback = handler.execute.callback
+                        if asyncio.iscoroutinefunction(callback):
+                            handler_result = await callback(handler_result)
+                        else:
+                            handler_result = callback(handler_result)
+                        if isinstance(handler_result, Response):
+                            self.handler_modifications[handler.slug] += 1
+
+                if handler.execute.action in (ExecuteAction.RETURN, ExecuteAction.ALL):
+                    self.handler_results[handler.slug].append(handler_result)
+                    max_resp_text = handler.execute.max_responses or CFG.LOGS.UNLIMITED_SIZE
+                    self.api._logger.info(
+                        CFG.LOGS.HANDLER_CAPTURED_RESPONSE.format(
+                            handler_type=handler.expected_content,
+                            url=response.url,
+                            current_count=len(self.handler_results[handler.slug]),
+                            max_responses=max_resp_text,
+                        )
+                    )
                 
         except Exception as e:
             # Если произошла ошибка, логируем для всех хендлеров
@@ -160,14 +183,19 @@ class MultiRequestInterceptor:
         for handler in self.handlers:
             if handler.slug in self.handler_errors:
                 continue  # Уже завершен с ошибкой
-                
-            # Если хандлер достиг лимита ответов, он завершен
-            if handler.max_responses is not None and len(self.handler_results[str(handler.slug)]) >= handler.max_responses:
-                continue
-            
-            # Если хандлер еще не завершен, продолжаем ожидание
-            all_completed = False
-            break
+
+            done_return = True
+            done_modify = True
+            if handler.execute.action in (ExecuteAction.RETURN, ExecuteAction.ALL):
+                if handler.execute.max_responses is None or len(self.handler_results[str(handler.slug)]) < handler.execute.max_responses:
+                    done_return = False
+            if handler.execute.action in (ExecuteAction.MODIFY, ExecuteAction.ALL):
+                if handler.execute.max_modifications is None or self.handler_modifications[handler.slug] < handler.execute.max_modifications:
+                    done_modify = False
+
+            if not (done_return and done_modify):
+                all_completed = False
+                break
         
         # Если все хандлеры достигли своих лимитов, завершаем работу
         if all_completed:
@@ -186,7 +214,9 @@ class MultiRequestInterceptor:
         for handler in self.handlers:
             if handler.slug in self.handler_errors:
                 result.append(self.handler_errors[handler.slug])
-            elif self.handler_results[handler.slug]:
+            elif self.handler_results[handler.slug] or (
+                handler.execute.action == ExecuteAction.MODIFY and self.handler_modifications[handler.slug] > 0
+            ):
                 duration = current_time - self.start_time
                 result.append(HandlerSearchSuccess(
                     responses=self.handler_results[handler.slug],
@@ -228,18 +258,24 @@ class MultiRequestInterceptor:
             # Формируем результат с тем, что успели получить
             result = []
             for handler in self.handlers:
-                if self.handler_results[str(handler.slug)]:
-                    result.append(HandlerSearchSuccess(
-                        responses=self.handler_results[handler.slug],
-                        duration=duration,
-                        handler_slug=handler.slug
-                    ))
+                if self.handler_results[str(handler.slug)] or (
+                    handler.execute.action == ExecuteAction.MODIFY and self.handler_modifications[handler.slug] > 0
+                ):
+                    result.append(
+                        HandlerSearchSuccess(
+                            responses=self.handler_results[handler.slug],
+                            duration=duration,
+                            handler_slug=handler.slug,
+                        )
+                    )
                 else:
-                    result.append(HandlerSearchFailed(
-                        rejected_responses=self.rejected_responses,
-                        duration=duration,
-                        handler_slug=handler.slug
-                    ))
+                    result.append(
+                        HandlerSearchFailed(
+                            rejected_responses=self.rejected_responses,
+                            duration=duration,
+                            handler_slug=handler.slug,
+                        )
+                    )
 
             return result
 
