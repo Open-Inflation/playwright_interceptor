@@ -1,93 +1,51 @@
-from standard_open_inflation_package import BaseAPI, Request, Response, HttpMethod, Page
-from standard_open_inflation_package.exceptions import NetworkError
-from standard_open_inflation_package import config as CFG
-from standard_open_inflation_package.handler import Handler, ExpectedContentType, HandlerSearchSuccess, HandlerSearchFailed
-from standard_open_inflation_package.execute import Execute
-from standard_open_inflation_package.browser_engines import BrowserEngine
-from pprint import pprint
-import time
-from io import BytesIO
-
-class Sample:
-    def __init__(self):
-        self.API = BaseAPI(
-            timeout=60.0,
-            start_func=self.start_func,
-            request_modifier_func=self.modify_request,
-            browser_engine=BrowserEngine.CAMOUFOX(headless=False),
-        )
-        self.API._logger.setLevel("DEBUG")
-        self.base_page: Page | None = None
-    
-    async def modify_request(self, request: Request) -> Request:
-        """
-        Модифицирует объект Request перед каждым inject_fetch запросом.
-        """
-        pprint(f"Modifying request: {request.url}, method={request.method}, headers={request.headers}, params={request.params}")
-
-        return request
-    
-    async def start_func(self, api: BaseAPI):
-        print("Starting the API...")
-        self.base_page = await api.new_page()
-        resp = await self.base_page.direct_fetch(
-            url="https://5ka.ru/catalog/",
-            wait_selector=".chakra-stack"
-        )
-        return resp
-        
-    async def __aenter__(self):
-        await self.API.new_session(include_browser=True)
-        return self
-        
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        print(f"__aexit__ called with exc_type={exc_type}, exc_val={exc_val}")
-        if exc_type:
-            print(f"Exception occurred: {exc_val}")
-        await self.API.close()
-
-    async def get_page(self):
-        return await self.base_page.direct_fetch(
-            url="https://5ka.ru/product/produkt-rassolnyy-sirtaki-original-dlya-grecheskog--3483307/",
-            wait_selector=".priceContainer_productCent__J1bRL",
-            handlers=Handler.SIDE(
-                expected_content=ExpectedContentType.IMAGE,
-                execute=Execute.RETURN(1),
-            )
-        )
-
-    async def get_categories(self):
-        # Можем использовать старый способ - передать URL как строку
-        resp = await self.base_page.direct_fetch(
-            url="https://5ka.ru/catalog/okroshka--251C38644/",
-            wait_selector=".chakra-heading.css-1y7neaf",
-            handlers=Handler.SIDE(
-                expected_content=ExpectedContentType.JSON,
-                startswith_url="https://5d.5ka.ru/api/catalog/v2/stores/", #todo поддержка регулярных выражений
-            )
-        )
-        return resp
-    
-
-
+from playwright.async_api import async_playwright
+from standard_open_inflation_package import NetworkInterceptor, Handler, Execute, Request, Response
+import asyncio
 
 async def main():
-    async with Sample() as sample:
-        try:
-            product_page = await sample.get_page()
-            assert isinstance(product_page[0], HandlerSearchSuccess)
-            assert isinstance(product_page[0].responses, Response)
-            assert isinstance(product_page[0].responses.response, BytesIO)
-        except Exception as e:
-            print(f"Error fetching product page: {e}")
+    async with async_playwright() as pw:
+        browser = await pw.firefox.launch()  # Используем firefox, так как он у вас работает
+        page = await browser.new_page()
+
+        interceptor = NetworkInterceptor(page)
+        interceptor._logger.setLevel("DEBUG")
         
-        try:
-            categories = await sample.get_categories()
-            assert isinstance(categories[0], HandlerSearchSuccess)
-            assert isinstance(categories[0].responses, Response)
-            assert isinstance(categories[0].responses.response, dict)
-        except Exception as e:
-            print(f"Error fetching categories: {e}")
+        # Запускаем перехватчик и навигацию одновременно
+        # asyncio.gather() запустит обе задачи параллельно
+        results, _ = await asyncio.gather(
+            interceptor.execute(Handler.ALL(execute=Execute.ALL(
+                request_modify=request_modifier,
+                response_modify=response_modifier,
+                max_modifications=4,
+                max_responses=2
+            ))),
+            page.goto("https://httpbin.org/")
+        )
+
+        print("Results:", results)
+        await browser.close()
+
+def request_modifier(request: Request) -> Request:
+    """Модифицирует запрос перед отправкой на сервер"""
+    print(f"Modifying request: {request.method.value} {request.url}")
+    
+    # Добавляем заголовок
+    request.add_header("X-Modified-By", "NetworkInterceptor")
+    
+    # Добавляем параметр
+    request.add_param("intercepted", "true")
+    
+    print(f"Modified request URL: {request.real_url}")
+    return request
+
+def response_modifier(response: Response) -> Response:
+    """Модифицирует ответ после получения от сервера"""
+    print(f"Modifying response: {response.status} from {response.url}")
+    
+    # Можем модифицировать заголовки ответа
+    response.response_headers["X-Response-Modified"] = "true"
+    
+    return response
 
 if __name__ == "__main__":
     import asyncio

@@ -8,123 +8,26 @@ from dataclasses import dataclass
 import json
 from datetime import datetime
 from . import config as CFG
+from enum import auto
 
 
-@beartype
-@dataclass(frozen=False)
-class Cookie:
-    """Класс для представления HTTP cookie с полной информацией"""
-    
-    name: str
-    value: str | dict
-    domain: str
-    path: Optional[str] = None
-    expires: Optional[datetime] = None
-    max_age: Optional[int] = None
-    secure: bool = False
-    http_only: bool = False
-    same_site: Optional[str] = None  # None, 'Strict', 'Lax', 'None'
+class WatcherType(Enum):
+    MAIN = auto()
+    SIDE = auto()
+    ALL = auto()
 
-    def __post_init__(self) -> None:
-        """Normalize cookie value and autodetect JSON."""
-        decoded_value = urllib.parse.unquote(str(self.value))
-        try:
-            if decoded_value.startswith("j:"):
-                self.value = json.loads(decoded_value[2:])
-            else:
-                self.value = decoded_value
-        except json.JSONDecodeError:
-            self.value = decoded_value
-    
-    def to_playwright_dict(self) -> Dict:
-        """Конвертирует Cookie в формат для Playwright API"""
-        value = self.value
-        if isinstance(value, dict):
-            value = json.dumps(value, separators=(",", ":"))
-
-        cookie_dict: Dict = {
-            'name': self.name,
-            'value': value,
-        }
-        
-        if self.domain:
-            cookie_dict['domain'] = self.domain
-        if self.path:
-            cookie_dict['path'] = self.path
-        if self.expires:
-            cookie_dict['expires'] = int(self.expires.timestamp())
-        if self.max_age is not None:
-            cookie_dict['maxAge'] = self.max_age
-        if self.secure:
-            cookie_dict['secure'] = self.secure
-        if self.http_only:
-            cookie_dict['httpOnly'] = self.http_only
-        if self.same_site:
-            cookie_dict['sameSite'] = self.same_site
-            
-        return cookie_dict
-    
-    @classmethod
-    def from_playwright_dict(cls, cookie_data: Dict) -> 'Cookie':
-        """Создает Cookie из данных Playwright API"""
-        expires = None
-        if 'expires' in cookie_data and cookie_data['expires'] != -1:
-            expires = datetime.fromtimestamp(cookie_data['expires'])
-            
-        return cls(
-            name=cookie_data.get('name', ''),
-            value=cookie_data.get('value', ''),
-            domain=cookie_data.get('domain'),
-            path=cookie_data.get('path'),
-            expires=expires,
-            max_age=cookie_data.get('maxAge'),
-            secure=cookie_data.get('secure', False),
-            http_only=cookie_data.get('httpOnly', False),
-            same_site=cookie_data.get('sameSite')
-        )
-    
-    @staticmethod
-    def _parse_cookie_date(date_str: str) -> Optional[datetime]:
-        """
-        Парсит дату из Cookie в различных форматах.
-        
-        Args:
-            date_str: Строка с датой
-            
-        Returns:
-            datetime объект или None если парсинг не удался
-        """
-        # Список поддерживаемых форматов дат в cookies
-        date_formats = [
-            '%a, %d %b %Y %H:%M:%S GMT',  # RFC 1123: Wed, 21 Oct 2015 07:28:00 GMT
-            '%a, %d-%b-%Y %H:%M:%S GMT',  # RFC 1036: Wednesday, 21-Oct-15 07:28:00 GMT  
-            '%a %b %d %H:%M:%S %Y',       # ANSI C: Wed Oct 21 07:28:00 2015
-            '%a, %d %b %Y %H:%M:%S %Z',   # RFC 1123 с временной зоной
-            '%a, %d-%b-%y %H:%M:%S %Z',   # RFC 1036 с временной зоной
-        ]
-        
-        for date_format in date_formats:
-            try:
-                return datetime.strptime(date_str.strip(), date_format)
-            except ValueError:
-                continue
-                
-        return None  # Если ни один формат не подошёл
-    
-    def __str__(self) -> str:
-        val = self.value
-        if isinstance(val, dict):
-            val = json.dumps(val, separators=(",", ":"))
-        return f"Cookie(name='{self.name}', value='{val}', domain='{self.domain}', path='{self.path}')"
-
-    def __repr__(self) -> str:
-        val = self.value
-        if isinstance(val, dict):
-            val = json.dumps(val, separators=(",", ":"))
-        return (
-            "Cookie(name='{name}', value='{val}', domain='{domain}', path='{path}', "
-            "secure={secure}, http_only={http_only})"
-        ).format(name=self.name, val=val, domain=self.domain, path=self.path, secure=self.secure, http_only=self.http_only)
+class ExpectedContentType(Enum):
+    JSON = auto()
+    JS = auto()
+    CSS = auto()
+    IMAGE = auto()
+    VIDEO = auto()
+    AUDIO = auto()
+    FONT = auto()
+    APPLICATION = auto()
+    ARCHIVE = auto()
+    TEXT = auto()
+    ANY = auto()
 
 
 class HttpMethod(Enum):
@@ -146,56 +49,70 @@ class Response:
     status: int
     request_headers: dict
     response_headers: dict
-    response: Union[dict, list, str, BytesIO, None] = None
+    content: bytes = b""
     duration: float = 0.0
     url: Optional[str] = None
+    
+    def content_parse(self) -> Union[dict, list, str, BytesIO]:
+        """Парсит содержимое ответа в Python-подобный формат"""
+        from .content_loader import parse_response_data
+        
+        if not self.content:
+            return ""
+        
+        # Ищем content-type независимо от регистра
+        content_type = ''
+        for key, value in self.response_headers.items():
+            if key.lower() == 'content-type':
+                content_type = value
+                break
+                
+        return parse_response_data(self.content, content_type)
     
     def __str__(self) -> str:
         type_data = parse_content_type(self.response_headers.get('content-type', CFG.LOGS.UNKNOWN_HEADER_TYPE))
         content_type = type_data["content_type"]
-        response_type = type(self.response).__name__
-
-        response_size = CFG.LOGS.UNLIMITED_SIZE
-        # Определяем размер ответа
-        if isinstance(self.response, (dict, list)):
-            response_size = f"{len(str(self.response))} chars"
-        elif isinstance(self.response, str):
-            response_size = f"{len(self.response)} chars"
-        elif isinstance(self.response, BytesIO):
-            response_size = f"{len(self.response.getvalue())} bytes"
+        content_size = f"{len(self.content)} bytes" if self.content else "0 bytes"
         
         url_info = f", url='{self.url}'" if self.url else ""
-        return f"Response(status={self.status}, type={response_type}, content_type='{content_type}', size={response_size}, duration={self.duration:.3f}s{url_info})"
+        return f"Response(status={self.status}, content_type='{content_type}', size={content_size}, duration={self.duration:.3f}s{url_info})"
     
     def __repr__(self) -> str:
         url_info = f", url='{self.url}'" if self.url else ""
-        return f"Response(status={self.status}, headers={len(self.response_headers)}, response_type={type(self.response).__name__}, duration={self.duration}{url_info})"
+        content_size = len(self.content) if self.content else 0
+        return f"Response(status={self.status}, headers={len(self.response_headers)}, content_size={content_size}, duration={self.duration}{url_info})"
 
 @beartype
+@dataclass(frozen=False)
 class Request:
     """Класс для представления HTTP запроса с возможностью модификации"""
     
-    def __init__(self, url: str, headers: Optional[Dict[str, str]] = None, params: Optional[Dict[str, str]] = None, 
-                 body: Optional[Union[dict, str]] = None, method: HttpMethod = HttpMethod.GET):
-        self._original_url = url
-        self._parsed_url = urllib.parse.urlparse(url)
+    url: str
+    headers: Optional[Dict[str, str]] = None
+    params: Optional[Dict[str, str]] = None
+    body: Optional[Union[dict, str]] = None
+    method: HttpMethod = HttpMethod.GET
+    
+    def __post_init__(self):
+        """Инициализация после создания dataclass"""
+        # Инициализируем пустые словари если None
+        if self.headers is None:
+            self.headers = {}
+        if self.params is None:
+            self.params = {}
+            
+        # Парсим URL и извлекаем существующие параметры
+        self._parsed_url = urllib.parse.urlparse(self.url)
+        existing_params = dict(urllib.parse.parse_qsl(self._parsed_url.query))
         
-        # Парсим существующие параметры из URL
-        self._parsed_params = dict(urllib.parse.parse_qsl(self._parsed_url.query))
-        
-        # Объединяем с переданными параметрами
-        if params:
-            self._parsed_params.update(params)
-        
-        # Инициализируем заголовки
-        self._headers = headers or {}
-        
-        # Инициализируем body и method
-        self._body = body
-        self._method = method
+        # Объединяем существующие параметры с переданными
+        if existing_params:
+            merged_params = existing_params.copy()
+            merged_params.update(self.params)
+            self.params = merged_params
     
     @property
-    def url(self) -> str:
+    def base_url(self) -> str:
         """Возвращает базовый URL без параметров"""
         return urllib.parse.urlunparse((
             self._parsed_url.scheme,
@@ -207,32 +124,12 @@ class Request:
         ))
     
     @property
-    def headers(self) -> Dict[str, str]:
-        """Возвращает словарь заголовков"""
-        return self._headers.copy()
-    
-    @property
-    def params(self) -> Dict[str, str]:
-        """Возвращает словарь параметров запроса"""
-        return self._parsed_params.copy()
-    
-    @property
-    def body(self) -> Optional[Union[dict, str]]:
-        """Возвращает тело запроса"""
-        return self._body
-    
-    @property
-    def method(self) -> HttpMethod:
-        """Возвращает HTTP метод запроса"""
-        return self._method
-    
-    @property
     def real_url(self) -> str:
         """Собирает и возвращает финальный URL с параметрами"""
-        if not self._parsed_params:
-            return self.url
+        if not self.params:
+            return self.base_url
         
-        query_string = urllib.parse.urlencode(self._parsed_params)
+        query_string = urllib.parse.urlencode(self.params)
         return urllib.parse.urlunparse((
             self._parsed_url.scheme,
             self._parsed_url.netloc,
@@ -242,56 +139,10 @@ class Request:
             self._parsed_url.fragment
         ))
     
-    def add_header(self, name: str, value: str) -> 'Request':
-        """Добавляет заголовок к запросу"""
-        self._headers[name] = value
-        return self
-    
-    def add_headers(self, headers: Dict[str, str]) -> 'Request':
-        """Добавляет множественные заголовки к запросу"""
-        self._headers.update(headers)
-        return self
-    
-    def add_param(self, name: str, value: str) -> 'Request':
-        """Добавляет параметр к запросу"""
-        self._parsed_params[name] = value
-        return self
-    
-    def add_params(self, params: Dict[str, str]) -> 'Request':
-        """Добавляет множественные параметры к запросу"""
-        self._parsed_params.update(params)
-        return self
-    
-    def remove_header(self, name: Union[str, list[str]]) -> 'Request':
-        """Удаляет заголовок(и) из запроса"""
-        if isinstance(name, str):
-            self._headers.pop(name, None)
-        else:
-            for header_name in name:
-                self._headers.pop(header_name, None)
-        return self
-    
-    def remove_param(self, name: Union[str, list[str]]) -> 'Request':
-        """Удаляет параметр(ы) из запроса"""
-        if isinstance(name, str):
-            self._parsed_params.pop(name, None)
-        else:
-            for param_name in name:
-                self._parsed_params.pop(param_name, None)
-        return self
-    
-    def set_body(self, body: Optional[Union[dict, str]]) -> 'Request':
-        """Устанавливает тело запроса"""
-        self._body = body
-        return self
-    
-    def set_method(self, method: HttpMethod) -> 'Request':
-        """Устанавливает HTTP метод запроса"""
-        self._method = method
-        return self
-    
     def __str__(self) -> str:
-        return f"Request(method={self._method.value}, url='{self.real_url}', headers={len(self._headers)}, params={len(self._parsed_params)}, body={'set' if self._body else 'none'})"
+        headers_count = len(self.headers) if self.headers else 0
+        params_count = len(self.params) if self.params else 0
+        return f"Request(method={self.method.value}, url='{self.real_url}', headers={headers_count}, params={params_count}, body={'set' if self.body else 'none'})"
     
     def __repr__(self) -> str:
-        return f"Request(method={self._method.value}, url='{self._original_url}', headers={self._headers}, params={self._parsed_params}, body={self._body})"
+        return f"Request(method={self.method.value}, url='{self.url}', headers={self.headers}, params={self.params}, body={self.body})"

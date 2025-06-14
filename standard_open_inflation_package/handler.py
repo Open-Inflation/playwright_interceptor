@@ -9,24 +9,8 @@ from . import config as CFG
 import urllib.parse
 from urllib.parse import urlparse
 from dataclasses import dataclass
+from .models import WatcherType, ExpectedContentType
 
-class WatcherType(Enum):
-    MAIN = auto()
-    SIDE = auto()
-    ALL = auto()
-
-class ExpectedContentType(Enum):
-    JSON = auto()
-    JS = auto()
-    CSS = auto()
-    IMAGE = auto()
-    VIDEO = auto()
-    AUDIO = auto()
-    FONT = auto()
-    APPLICATION = auto()
-    ARCHIVE = auto()
-    TEXT = auto()
-    ANY = auto()
 
 @beartype
 @dataclass(frozen=True)
@@ -36,10 +20,10 @@ class Handler:
     startswith_url: Optional[str] = None
     method: HttpMethod = HttpMethod.ANY
     execute: Execute = Execute.RETURN()
-    slug: Optional[str] = None
+    slug: str = ""
 
     def __post_init__(self):
-        if self.slug is None:
+        if self.slug == "":
             object.__setattr__(self, 'slug', str(uuid.uuid4())[:8])
 
     def __repr__(self) -> str:
@@ -61,7 +45,7 @@ class Handler:
         startswith_url: Optional[str] = None,
         method: HttpMethod = HttpMethod.ANY,
         execute: Execute = Execute.RETURN(1),
-        slug: Optional[str] = None,
+        slug: str = "",
     ):
         return cls(WatcherType.MAIN, expected_content, startswith_url, method, execute, slug)
 
@@ -72,7 +56,7 @@ class Handler:
         startswith_url: Optional[str] = None,
         method: HttpMethod = HttpMethod.ANY,
         execute: Execute = Execute.RETURN(1),
-        slug: Optional[str] = None,
+        slug: str = "",
     ):
         return cls(WatcherType.SIDE, expected_content, startswith_url, method, execute, slug)
 
@@ -83,12 +67,12 @@ class Handler:
         startswith_url: Optional[str] = None,
         method: HttpMethod = HttpMethod.ANY,
         execute: Execute = Execute.RETURN(1),
-        slug: Optional[str] = None,
+        slug: str = "",
     ):
         return cls(WatcherType.ALL, expected_content, startswith_url, method, execute, slug)
 
     @classmethod
-    def NONE(cls, slug: Optional[str] = None):
+    def NONE(cls, slug: str = ""):
         return cls(WatcherType.ALL, startswith_url="!NONE!", execute=Execute.RETURN(), slug=slug)
 
     def should_capture(self, resp, base_url: str) -> bool:

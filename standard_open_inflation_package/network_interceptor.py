@@ -1,10 +1,9 @@
-import asyncio
 import logging
 import time
 from typing import List, Optional, Union
 
 from .handler import Handler
-from .direct_request_interceptor import MultiRequestInterceptor
+from .request_interceptor import MultiRequestInterceptor
 from .config import errors as ERR, logs as LOGS
 
 
@@ -18,7 +17,7 @@ class NetworkInterceptor:
     async def execute(
         self,
         handlers: Union[Handler, List[Handler]],
-        timeout: float = 30.0,
+        timeout: float = 10.0,
     ):
         if isinstance(handlers, Handler):
             handlers = [handlers]
