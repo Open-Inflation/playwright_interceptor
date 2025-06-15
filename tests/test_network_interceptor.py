@@ -1,7 +1,7 @@
 import asyncio
 import pytest
 from playwright.async_api import async_playwright
-from standard_open_inflation_package import NetworkInterceptor, Handler, Execute
+from playwright_interceptor import NetworkInterceptor, Handler, Execute
 
 @pytest.mark.asyncio
 @pytest.mark.xfail(reason="Network interception may not work in sandbox")

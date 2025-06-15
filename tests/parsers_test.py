@@ -1,5 +1,5 @@
 import pytest
-from standard_open_inflation_package.content_loader import parse_response_data, _remove_csrf_prefixes
+from playwright_interceptor.content_loader import parse_response_data, _remove_csrf_prefixes
 import json
 from io import BytesIO
 

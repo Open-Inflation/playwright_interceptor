@@ -252,7 +252,7 @@ def modify_response(response: Response) -> Response:
 ### Enum Classes
 
 ```python
-from standard_open_inflation_package import ExpectedContentType, HttpMethod
+from playwright_interceptor import ExpectedContentType, HttpMethod
 
 # Content types
 ExpectedContentType.JSON        # application/json

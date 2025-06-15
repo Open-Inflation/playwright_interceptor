@@ -2,14 +2,16 @@
 Demonstration test for new request_modify and response_modify functionality
 """
 import pytest
-from standard_open_inflation_package import Execute, Request, Response, HttpMethod, ExecuteAction
+from playwright_interceptor import Execute, Request, Response, HttpMethod, ExecuteAction
 
 
 def test_execute_modify_with_request_and_response():
     """Test Execute.MODIFY with both functions: request_modify and response_modify"""
     
     def mock_request_modify(req: Request) -> Request:
-        req.add_header("X-Test", "request-modified")
+        if req.headers is None:
+            req.headers = {}
+        req.headers["X-Test"] = "request-modified"
         return req
     
     def mock_response_modify(resp: Response) -> Response:
@@ -33,7 +35,9 @@ def test_execute_all_with_request_and_response():
     """Test Execute.ALL with both functions: request_modify and response_modify"""
     
     def mock_request_modify(req: Request) -> Request:
-        req.add_param("modified", "true")
+        if req.params is None:
+            req.params = {}
+        req.params["modified"] = "true"
         return req
     
     def mock_response_modify(resp: Response) -> Response:
@@ -69,16 +73,12 @@ def test_request_object_functionality():
     # Check basic properties
     assert request.url == "https://example.com/api"
     assert request.method == HttpMethod.POST
+    assert request.headers is not None
     assert "Authorization" in request.headers
+    assert request.params is not None
     assert request.params["page"] == "1"
     
-    # Test property modification (new API)
-    # Make sure properties are initialized
-    if request.headers is None:
-        request.headers = {}
-    if request.params is None:
-        request.params = {}
-        
+    # Test property modification (direct access)
     request.headers["X-Custom"] = "value"
     request.params["limit"] = "10"
     
