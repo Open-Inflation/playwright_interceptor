@@ -3,7 +3,6 @@ from .execute import Execute
 from .tools import parse_content_type
 from beartype import beartype
 from beartype.typing import List, Optional
-from enum import Enum, auto
 import uuid
 from . import config as CFG
 import urllib.parse
@@ -127,7 +126,7 @@ class Handler:
 @beartype
 @dataclass(frozen=True)
 class HandlerSearchSuccess:
-    """Класс для представления успешного поиска handler'ом подходящего response"""
+    """Class for representing successful handler search for suitable response"""
     responses: List[Response]
     duration: float = 0.0
     handler_slug: str = 'unknown'
@@ -141,7 +140,7 @@ class HandlerSearchSuccess:
 @beartype
 @dataclass(frozen=True)
 class HandlerSearchFailed:
-    """Класс для представления ошибки, когда handler не нашел подходящего response"""
+    """Class for representing error when handler didn't find suitable response"""
     rejected_responses: List['Response']
     duration: float = 0.0
     handler_slug: str = 'unknown'

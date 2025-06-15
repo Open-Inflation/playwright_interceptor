@@ -1,7 +1,6 @@
 import logging
 import time
 from typing import List, Optional, Union
-
 from .handler import Handler
 from .request_interceptor import MultiRequestInterceptor
 from .config import errors as ERR, logs as LOGS

@@ -96,7 +96,7 @@ TEXT_EXTENSIONS = {
     'application/atom+xml': '.atom',
 }
 
-# JSON extensions (отдельно, так как это самостоятельный формат)
+# JSON extensions (separate, as it's an independent format)
 JSON_EXTENSIONS = {
     'application/json': '.json',
     'application/ld+json': '.jsonld',

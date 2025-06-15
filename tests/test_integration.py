@@ -1,5 +1,5 @@
 """
-Интеграционный тест для проверки новой функциональности request_modify и response_modify
+Integration test for checking new request_modify and response_modify functionality
 """
 import pytest
 import asyncio
@@ -9,7 +9,7 @@ from standard_open_inflation_package import NetworkInterceptor, Handler, Execute
 
 @pytest.mark.asyncio
 async def test_integration_request_response_modification():
-    """Полный интеграционный тест модификации запросов и ответов"""
+    """Full integration test for request and response modification"""
     
     modification_log = []
     

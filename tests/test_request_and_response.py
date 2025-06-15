@@ -1,12 +1,12 @@
 """
-Демонстрационный тест для новой функциональности request_modify и response_modify
+Demonstration test for new request_modify and response_modify functionality
 """
 import pytest
 from standard_open_inflation_package import Execute, Request, Response, HttpMethod, ExecuteAction
 
 
 def test_execute_modify_with_request_and_response():
-    """Тест Execute.MODIFY с обеими функциями: request_modify и response_modify"""
+    """Test Execute.MODIFY with both functions: request_modify and response_modify"""
     
     def mock_request_modify(req: Request) -> Request:
         req.add_header("X-Test", "request-modified")
@@ -16,7 +16,7 @@ def test_execute_modify_with_request_and_response():
         resp.response_headers["X-Test"] = "response-modified"
         return resp
     
-    # Создаем Execute с обеими функциями
+    # Create Execute with both functions
     execute = Execute.MODIFY(
         request_modify=mock_request_modify,
         response_modify=mock_response_modify,
@@ -30,7 +30,7 @@ def test_execute_modify_with_request_and_response():
 
 
 def test_execute_all_with_request_and_response():
-    """Тест Execute.ALL с обеими функциями: request_modify и response_modify"""
+    """Test Execute.ALL with both functions: request_modify and response_modify"""
     
     def mock_request_modify(req: Request) -> Request:
         req.add_param("modified", "true")
@@ -40,7 +40,7 @@ def test_execute_all_with_request_and_response():
         resp.response_headers["X-Modified"] = "true"
         return resp
     
-    # Создаем Execute с обеими функциями
+    # Create Execute with both functions
     execute = Execute.ALL(
         request_modify=mock_request_modify,
         response_modify=mock_response_modify,
@@ -56,9 +56,9 @@ def test_execute_all_with_request_and_response():
 
 
 def test_request_object_functionality():
-    """Тест функциональности Request объекта"""
+    """Test Request object functionality"""
     
-    # Создаем Request объект
+    # Create Request object
     request = Request(
         url="https://example.com/api",
         headers={"Authorization": "Bearer token"},
@@ -66,14 +66,14 @@ def test_request_object_functionality():
         method=HttpMethod.POST
     )
     
-    # Проверяем базовые свойства
+    # Check basic properties
     assert request.url == "https://example.com/api"
     assert request.method == HttpMethod.POST
     assert "Authorization" in request.headers
     assert request.params["page"] == "1"
     
-    # Тестируем модификацию свойств (новый API)
-    # Убеждаемся что свойства инициализированы
+    # Test property modification (new API)
+    # Make sure properties are initialized
     if request.headers is None:
         request.headers = {}
     if request.params is None:
@@ -85,23 +85,23 @@ def test_request_object_functionality():
     assert request.headers["X-Custom"] == "value"
     assert request.params["limit"] == "10"
     
-    # Проверяем real_url
+    # Check real_url
     assert "page=1" in request.real_url
     assert "limit=10" in request.real_url
 
 
 def test_execute_validation():
-    """Тест валидации параметров Execute"""
+    """Test Execute parameter validation"""
     
-    # MODIFY должен требовать хотя бы одну из функций модификации
+    # MODIFY should require at least one modification function
     with pytest.raises(ValueError, match="at least one of response_modify or request_modify"):
         Execute.MODIFY(max_modifications=1)
     
-    # ALL должен требовать хотя бы одну из функций модификации
+    # ALL should require at least one modification function
     with pytest.raises(ValueError, match="at least one of response_modify or request_modify"):
         Execute.ALL(max_modifications=1, max_responses=1)
     
-    # RETURN не должен принимать функции модификации
+    # RETURN should not accept modification functions
     with pytest.raises(ValueError, match="should not have response_modify"):
         Execute(action=ExecuteAction.RETURN, response_modify=lambda x: x, max_responses=1)
 

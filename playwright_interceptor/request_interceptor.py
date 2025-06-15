@@ -1,6 +1,5 @@
 import asyncio
 import time
-import json
 from beartype import beartype
 from beartype.typing import Union, List, Dict
 from .content_loader import parse_response_data
@@ -9,7 +8,6 @@ from .models import Response, Request, HttpMethod
 from .handler import Handler, HandlerSearchFailed, HandlerSearchSuccess
 from .execute import ExecuteAction
 from playwright._impl._errors import TargetClosedError
-from io import BytesIO
 
 
 @beartype
@@ -23,7 +21,7 @@ class MockResponse:
 
 @beartype
 class MultiRequestInterceptor:
-    """Класс для перехвата HTTP-запросов с поддержкой множественных хандлеров"""
+    """Class for intercepting HTTP requests with multiple handlers support"""
     
     def __init__(self, api, handlers: List[Handler], base_url: str, start_time: float):
         self.api = api
@@ -33,63 +31,63 @@ class MultiRequestInterceptor:
         self.rejected_responses = []
         self.loop = asyncio.get_running_loop()
         
-        # Словарь для хранения результатов каждого хандлера (используем slug как ключ)
+        # Dictionary for storing results of each handler (using slug as key)
         self.handler_results: Dict[str, List[Response]] = {handler.slug: [] for handler in handlers}
         self.handler_errors: Dict[str, HandlerSearchFailed] = {}
         self.handler_modifications: Dict[str, int] = {handler.slug: 0 for handler in handlers}
         
-        # Future для завершения работы
+        # Future for completion
         self.completion_future = self.loop.create_future()
         self.timeout_task = None
 
     def _response_to_body(self, response: Response) -> Union[str, bytes]:
-        """Преобразует Response объект обратно в тело для Playwright"""
+        """Converts Response object back to body for Playwright"""
         if not response.content:
             return ""
-        # Всегда используем content как bytes
+        # Always use content as bytes
         return response.content
     
     async def handle_route(self, route):
-        """Обработчик маршрута для перехвата запросов"""
+        """Route handler for intercepting requests"""
         request = route.request
         
-        # Добавляем явное логирование каждого запроса
+        # Add explicit logging for each request
         self.api._logger.debug(f"INTERCEPTOR_HANDLE_ROUTE: URL={request.url}, Method={request.method}")
         
-        # Проверяем протокол URL - пропускаем неподдерживаемые протоколы
+        # Check URL protocol - skip unsupported protocols
         if request.url.startswith(CFG.PARAMETERS.UNSUPPORTED_PROTOCOLS):
             self.api._logger.debug(f"UNSUPPORTED_PROTOCOL: {request.url}")
-            # Продолжаем обработку запроса без перехвата
+            # Continue request processing without interception
             await route.continue_()
             return
         
-        # Проверяем, есть ли хандлеры с request_modify
+        # Check if there are handlers with request_modify
         request_modifying_handlers = []
         for handler in self.handlers:
             if handler.slug in self.handler_errors:
                 continue
             
-            # Проверяем, не завершил ли хандлер все необходимые действия
+            # Check if handler hasn't completed all necessary actions
             if handler.execute.action in (ExecuteAction.MODIFY, ExecuteAction.ALL):
                 if handler.execute.request_modify is not None:
                     if handler.execute.max_modifications is None or self.handler_modifications[handler.slug] < handler.execute.max_modifications:
                         request_modifying_handlers.append(handler)
 
-        # Применяем модификации запроса, если есть подходящие хандлеры
+        # Apply request modifications if there are suitable handlers
         modified_request = None
         if request_modifying_handlers:
-            # Создаем Request объект из исходного запроса
+            # Create Request object from original request
             try:
                 method = HttpMethod(request.method) if request.method != "ANY" else HttpMethod.GET
             except ValueError:
                 method = HttpMethod.GET
             
-            # Парсим параметры из URL
+            # Parse parameters from URL
             from urllib.parse import urlparse, parse_qsl
             parsed_url = urlparse(request.url)
             params = dict(parse_qsl(parsed_url.query)) if parsed_url.query else {}
             
-            # Получаем тело запроса, если есть
+            # Get request body if exists
             body = None
             if hasattr(request, 'post_data') and request.post_data:
                 body = request.post_data
@@ -102,7 +100,7 @@ class MultiRequestInterceptor:
                 method=method
             )
             
-            # Применяем модификации от всех подходящих хандлеров ПОСЛЕДОВАТЕЛЬНО
+            # Apply modifications from all suitable handlers SEQUENTIALLY
             for handler in request_modifying_handlers:
                 if handler.execute.request_modify is not None:
                     try:
@@ -207,7 +205,7 @@ class MultiRequestInterceptor:
             await route.fulfill(response=response)
     
     async def _handle_captured_response(self, handlers: List[Handler], response, request, response_time: float) -> Union[Response, None]:
-        """Обрабатывает захваченный response для множественных хандлеров и возвращает модифицированный ответ"""
+        """Processes captured response for multiple handlers and returns modified response"""
         try:
             # Получаем тело ответа ТОЛЬКО ОДИН РАЗ
             raw_data = await response.body()
@@ -284,7 +282,7 @@ class MultiRequestInterceptor:
             return None
 
     def _handle_rejected_response(self, response, request, response_time: float):
-        """Обрабатывает отклоненный response"""
+        """Processes rejected response"""
         # Сохраняем отклоненные ответы для анализа
         duration = response_time - self.start_time
         self.rejected_responses.append(Response(
@@ -297,7 +295,7 @@ class MultiRequestInterceptor:
         ))
     
     def _check_completion(self):
-        """Проверяет, завершены ли все хандлеры"""
+        """Checks if all handlers are completed"""
         if self.completion_future.done():
             return
             

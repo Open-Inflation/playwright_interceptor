@@ -9,20 +9,20 @@ from .tools import parse_content_type
 @beartype
 def _remove_csrf_prefixes(text: str) -> str:
     """
-    Универсально удаляет CSRF-префиксы из JSON ответов.
+    Universally removes CSRF prefixes from JSON responses.
     
-    Принцип: ищем первый валидный JSON объект/массив в строке,
-    игнорируя любые CSRF-префиксы.
+    Principle: find the first valid JSON object/array in the string,
+    ignoring any CSRF prefixes.
     """
-    # Убираем пробелы в начале
+    # Remove leading spaces
     text = text.lstrip()
     
-    # Ищем начало JSON (объект или массив)
+    # Find beginning of JSON (object or array)
     json_start_chars = ['{', '[']
     
     for i, char in enumerate(text):
         if char in json_start_chars:
-            # Используем стек для отслеживания скобок
+            # Use stack for tracking brackets
             stack = []
             in_string = False
             escaped = False
@@ -53,7 +53,7 @@ def _remove_csrf_prefixes(text: str) -> str:
                     expected = '{' if current == '}' else '['
                     if stack[-1] == expected:
                         stack.pop()
-                        if not stack:  # Стек пуст - JSON завершен
+                        if not stack:  # Stack is empty - JSON is complete
                             candidate = text[i:j+1]
                             try:
                                 json.loads(candidate)
@@ -63,20 +63,20 @@ def _remove_csrf_prefixes(text: str) -> str:
                     else:
                         break
     
-    # Если не нашли валидный JSON, возвращаем оригинал
+    # If no valid JSON found, return original
     return text
 
 @beartype
 def parse_response_data(data: Union[str, bytes], content_type: str) -> Union[dict, list, str, BytesIO]:
     """
-    Парсит данные ответа на основе content-type с универсальной обработкой CSRF-префиксов.
+    Parses response data based on content-type with universal CSRF prefix handling.
     
     Args:
-        data: Сырые данные как строка или байты
-        content_type: Content-Type из заголовков ответа
+        data: Raw data as string or bytes
+        content_type: Content-Type from response headers
     
     Returns:
-        Распарсенные данные соответствующего типа
+        Parsed data of appropriate type
     """
     pct = parse_content_type(content_type)
 
@@ -105,23 +105,23 @@ def parse_response_data(data: Union[str, bytes], content_type: str) -> Union[dic
         CFG.NETWORK.ARCHIVE_EXTENSIONS
     ]:
         if pct['content_type'] in types:
-            # Для файлов создаем BytesIO объект
+            # Create BytesIO object for files
             if isinstance(data, bytes):
                 parsed_data = BytesIO(data)
             else:
-                # Если данные пришли как строка (не должно происходить для бинарных файлов, но на всякий случай)
+                # If data came as string (shouldn't happen for binary files, but just in case)
                 parsed_data = BytesIO(data.encode(pct['charset']))
             
-            # Определяем расширение по content-type
+            # Determine extension by content-type
             parsed_data.name = f"file{types[pct['content_type']]}"
             return parsed_data
     
-    # Для всех остальных типов возвращаем как текст
+    # For all other types return as text
     if isinstance(data, bytes):
         try:
             return data.decode(pct['charset'])
         except UnicodeDecodeError:
-            # Если не удается декодировать, создаем BytesIO
+            # If unable to decode, create BytesIO
             return BytesIO(data)
     else:
         return data

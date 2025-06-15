@@ -5,8 +5,6 @@ from .tools import parse_content_type
 from enum import Enum
 from io import BytesIO
 from dataclasses import dataclass
-import json
-from datetime import datetime
 from . import config as CFG
 from enum import auto
 
@@ -38,13 +36,13 @@ class HttpMethod(Enum):
     PATCH = "PATCH"
     HEAD = "HEAD"
     OPTIONS = "OPTIONS"
-    ANY = None  # Специальный метод для захвата любых запросов
+    ANY = None  # Special method for capturing any requests
 
 
 @beartype
 @dataclass(frozen=False)
 class Response:
-    """Класс для представления ответа от API"""
+    """Class for representing API response"""
     
     status: int
     request_headers: dict
@@ -54,18 +52,20 @@ class Response:
     url: Optional[str] = None
     
     def content_parse(self) -> Union[dict, list, str, BytesIO]:
-        """Парсит содержимое ответа в Python-подобный формат"""
+        """Parses response content into Python-like format"""
         from .content_loader import parse_response_data
         
         if not self.content:
             return ""
         
-        # Ищем content-type независимо от регистра
+        # Look for content-type regardless of case
         content_type = ''
         for key, value in self.response_headers.items():
             if key.lower() == 'content-type':
                 content_type = value
                 break
+        else:
+            raise ValueError("Content-Type header not found in response headers")
                 
         return parse_response_data(self.content, content_type)
     
@@ -85,7 +85,7 @@ class Response:
 @beartype
 @dataclass(frozen=False)
 class Request:
-    """Класс для представления HTTP запроса с возможностью модификации"""
+    """Class for representing HTTP request with modification capability"""
     
     url: str
     headers: Optional[Dict[str, str]] = None
@@ -94,18 +94,18 @@ class Request:
     method: HttpMethod = HttpMethod.GET
     
     def __post_init__(self):
-        """Инициализация после создания dataclass"""
-        # Инициализируем пустые словари если None
+        """Initialization after dataclass creation"""
+        # Initialize empty dictionaries if None
         if self.headers is None:
             self.headers = {}
         if self.params is None:
             self.params = {}
             
-        # Парсим URL и извлекаем существующие параметры
+        # Parse URL and extract existing parameters
         self._parsed_url = urllib.parse.urlparse(self.url)
         existing_params = dict(urllib.parse.parse_qsl(self._parsed_url.query))
         
-        # Объединяем существующие параметры с переданными
+        # Merge existing parameters with passed ones
         if existing_params:
             merged_params = existing_params.copy()
             merged_params.update(self.params)
@@ -113,19 +113,19 @@ class Request:
     
     @property
     def base_url(self) -> str:
-        """Возвращает базовый URL без параметров"""
+        """Returns base URL without parameters"""
         return urllib.parse.urlunparse((
             self._parsed_url.scheme,
             self._parsed_url.netloc,
             self._parsed_url.path,
             self._parsed_url.params,
-            '',  # query - пустая, так как параметры отдельно
+            '',  # query - empty since parameters are separate
             self._parsed_url.fragment
         ))
     
     @property
     def real_url(self) -> str:
-        """Собирает и возвращает финальный URL с параметрами"""
+        """Builds and returns final URL with parameters"""
         if not self.params:
             return self.base_url
         
