@@ -33,16 +33,5 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Install Firefox Dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y libgtk-3-0 libx11-xcb1
-
-      - name: Fetch browsers via Camoufox
-        run: camoufox fetch
-
-      - name: Install Playwright Browsers
-        run: playwright install
-
       - name: Run Tools Tests
-        run: pytest -n auto -vvv
+        run: pytest -vvv
