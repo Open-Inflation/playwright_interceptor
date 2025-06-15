@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "standard_open_inflation_package"
+name = "playwright_interceptor"
 dynamic = ["version"]
-description = "Standard Open Inflation Package for all API's"
+description = "Addon for Playwright for intercepting and modifying HTTP requests and responses."
 readme = "README.md"
 authors = [
     {name = "Miskler"}
@@ -34,10 +34,10 @@ dependencies = [
 
 
 [project.urls]
-Homepage = "https://github.com/Open-Inflation/standard_open_inflation_package"
+Homepage = "https://github.com/Open-Inflation/playwright_interceptor"
 
 [tool.setuptools.dynamic]
-version = {attr = "standard_open_inflation_package.__version__"}
+version = {attr = "playwright_interceptor.__version__"}
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
